@@ -12,7 +12,9 @@ license.workspace = true
 # opens at run time through winit's `dlopen`).
 wayland = ["rfd/wayland"]
 
-[dependencies]
+# Android has no backend in rfd, so the crate builds against its own stub
+# there (see `src/lib.rs` and `docs/android.md`).
+[target.'cfg(not(target_os = "android"))'.dependencies]
 rfd.workspace = true
 
 [lints]

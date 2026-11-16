@@ -13,6 +13,7 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
+musiccraft-app = { path = "crates/musiccraft-app" }
 musiccraft-project = { path = "crates/musiccraft-project" }
 musiccraft-commands = { path = "crates/musiccraft-commands" }
 musiccraft-engine = { path = "crates/musiccraft-engine" }

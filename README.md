@@ -48,6 +48,10 @@ cargo run --release -p musiccraft-app -- song.mcproj
 
 Linux needs the ALSA development package (`alsa-lib` / `libasound2-dev`).
 
+Android phones and tablets build from the same code: `cargo apk build
+-p musiccraft-android --release` (the `android.yml` workflow builds
+`arm64-v8a` and `armeabi-v7a` APKs on every push). See `docs/android.md`.
+
 Options: `--empty` (no starter drum kit), `--keymap <file>`, `--open
 channel_rack,piano_roll,playlist,mixer,browser`.
 

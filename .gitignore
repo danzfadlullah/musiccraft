@@ -2,3 +2,6 @@
 /standalone/target
 **/*.rs.bk
 .DS_Store
+
+# The CI-generated throwaway signing key (docs/android.md)
+crates/musiccraft-android/release.keystore
