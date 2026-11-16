@@ -44,8 +44,13 @@ debuggable = true
 name = "android.permission.WRITE_EXTERNAL_STORAGE"
 max_sdk_version = 29
 
+[[package.metadata.android.uses_permission]]
+# The in-app update check and APK download talk to the GitHub Releases API.
+name = "android.permission.INTERNET"
+
 [package.metadata.android.application.activity]
-orientation = "fullSensor"
+# Landscape only: the DAW layout is built for a wide screen.
+orientation = "sensorLandscape"
 launch_mode = "singleTask"
 # Keep the surface and the engine alive across rotations and keyboard slides.
 config_changes = "orientation|screenSize|screenLayout|keyboard|keyboardHidden|density|uiMode"

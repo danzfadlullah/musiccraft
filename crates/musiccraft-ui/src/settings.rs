@@ -167,6 +167,45 @@ pub struct SettingsInfo {
     pub plugins_unscanned: bool,
     /// Plugin files that failed to load.
     pub plugin_errors: Vec<String>,
+    /// The in-app update check (Android; the default elsewhere).
+    pub updates: UpdateInfo,
+}
+
+/// What the app reports about its own updates (Android). Read-only.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UpdateInfo {
+    /// The commit this build was made from; empty when built outside CI.
+    pub build: String,
+    /// The update check's outcome.
+    pub status: UpdateStatus,
+}
+
+/// States of the in-app update check (Android).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum UpdateStatus {
+    /// Nothing has been checked yet.
+    #[default]
+    Idle,
+    /// Asking the Releases tab.
+    Checking,
+    /// The installed build is the newest one.
+    UpToDate,
+    /// A newer build is published: its short commit, its publish date and
+    /// the APK size in bytes.
+    Available {
+        build: String,
+        published: String,
+        size: u64,
+    },
+    /// The APK is downloading, 0 to 1.
+    Downloading { progress: f32 },
+    /// Downloaded; the app is opening the system installer.
+    Installing,
+    /// The installer is on screen (empty note), or it could not be opened
+    /// and the note says where the APK is instead.
+    Ready { note: String },
+    /// The check or the download failed; the message says why.
+    Failed(String),
 }
 
 /// Tabs of the settings window.
@@ -182,15 +221,18 @@ pub enum Tab {
     Folders,
     /// Name, tempo and statistics.
     Project,
+    /// The app's own updates (Android).
+    Updates,
 }
 
 impl Tab {
-    const ALL: [Tab; 5] = [
+    const ALL: [Tab; 6] = [
         Tab::Audio,
         Tab::Midi,
         Tab::General,
         Tab::Folders,
         Tab::Project,
+        Tab::Updates,
     ];
 
     fn label(self) -> &'static str {
@@ -200,6 +242,7 @@ impl Tab {
             Self::General => "General",
             Self::Folders => "Folders",
             Self::Project => "Project",
+            Self::Updates => "Updates",
         }
     }
 
@@ -250,6 +293,7 @@ pub fn show(
                 Tab::General => general(ui, state, frame, actions),
                 Tab::Folders => folders(ui, state, frame, actions),
                 Tab::Project => project(ui, state, frame, actions),
+                Tab::Updates => updates(ui, &frame.settings_info.updates, actions),
             });
         });
     state.settings_tab = open.then_some(tab);
@@ -853,4 +897,99 @@ fn project(ui: &mut egui::Ui, state: &mut UiState, frame: &Frame<'_>, actions: &
             project.automations.len(),
         ),
     );
+}
+
+/// The Updates tab: what the app itself reports about newer builds. The
+/// check, the download and the installer live in the app; this only shows
+/// the state and asks for the next step.
+fn updates(ui: &mut egui::Ui, info: &UpdateInfo, actions: &mut Vec<Action>) {
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = info;
+        let _ = actions;
+        ui.add_space(4.0);
+        ui.label(concat!(
+            "Desktop builds are published on the upstream releases page:\n",
+            "github.com/bhimio1/musiccraft/releases"
+        ));
+    }
+    #[cfg(target_os = "android")]
+    {
+        ui.add_space(4.0);
+        if info.build.is_empty() {
+            ui.label(
+                "This build has no version stamp (built outside CI), so it \
+                 cannot tell whether it is the newest.",
+            );
+        } else {
+            ui.label(format!(
+                "Installed build: {}",
+                &info.build[..info.build.len().min(7)]
+            ));
+        }
+        ui.add_space(8.0);
+        match &info.status {
+            UpdateStatus::Idle | UpdateStatus::Failed(_) => {
+                if let UpdateStatus::Failed(err) = &info.status {
+                    ui.colored_label(egui::Color32::LIGHT_RED, err);
+                    ui.add_space(4.0);
+                }
+                if ui.button("Check for update").clicked() {
+                    actions.push(Action::CheckUpdates);
+                }
+            }
+            UpdateStatus::Checking => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Asking the Releases tab…");
+                });
+            }
+            UpdateStatus::UpToDate => {
+                ui.label("This is the newest build.");
+                if ui.button("Check again").clicked() {
+                    actions.push(Action::CheckUpdates);
+                }
+            }
+            UpdateStatus::Available {
+                build,
+                published,
+                size,
+            } => {
+                ui.label(format!(
+                    "Update available: build {build} ({published}, {:.1} MB)",
+                    *size as f64 / 1e6
+                ));
+                ui.add_space(4.0);
+                if ui.button("Download and install").clicked() {
+                    actions.push(Action::InstallUpdate);
+                }
+                ui.add_space(4.0);
+                ui.label(
+                    "Android opens its installer to confirm; the new build \
+                     replaces this one in place.",
+                );
+            }
+            UpdateStatus::Downloading { progress } => {
+                ui.add(egui::ProgressBar::new(*progress).show_percentage());
+                ui.label("Downloading the update…");
+            }
+            UpdateStatus::Installing => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Opening the installer…");
+                });
+            }
+            UpdateStatus::Ready { note } => {
+                if note.is_empty() {
+                    ui.label("The installer is open: confirm to install the update.");
+                } else {
+                    ui.label(note);
+                }
+                ui.add_space(4.0);
+                if ui.button("Check again").clicked() {
+                    actions.push(Action::CheckUpdates);
+                }
+            }
+        }
+    }
 }

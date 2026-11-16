@@ -27,6 +27,15 @@ pub fn app_handle() -> Option<android_activity::AndroidApp> {
     APP.get().cloned()
 }
 
+/// The app's folder on shared storage
+/// (`Android/data/<package>/files/MusicCraft`), where the update APK keeps a
+/// spare copy the user can reach with a file manager.
+pub fn external_dir() -> Option<PathBuf> {
+    APP.get()
+        .and_then(|app| app.external_data_path())
+        .map(|dir| dir.join("MusicCraft"))
+}
+
 /// Folders the log is written to, best first: the app's folder on shared
 /// storage (`Android/data/<package>/files/MusicCraft/logs`), then its private
 /// storage, then a `MusicCraft` folder in Downloads. Downloads only works on

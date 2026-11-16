@@ -44,7 +44,7 @@ pub use dialogs::{FilePick, Pick, PickMode};
 pub use geometry::Snap;
 pub use keymap::{Chord, DEFAULT_KEYMAP, Keymap};
 pub use plugins::{LivePluginView, PluginEntry, PluginParamView, Plugins};
-pub use settings::{MidiInput, Settings, SettingsInfo};
+pub use settings::{MidiInput, Settings, SettingsInfo, UpdateInfo, UpdateStatus};
 pub use theme::apply as apply_theme;
 
 /// Something the user asked for, produced by one frame of UI.
@@ -109,6 +109,10 @@ pub enum Action {
     },
     /// Scan the plugin folders again.
     RescanPlugins,
+    /// Check the Releases tab for a newer build (Android).
+    CheckUpdates,
+    /// Download the newer build and open the system installer (Android).
+    InstallUpdate,
     /// Apply and save new settings.
     Settings(Box<Settings>),
     /// List audio devices and MIDI ports again.

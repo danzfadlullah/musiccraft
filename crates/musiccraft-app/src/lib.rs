@@ -12,6 +12,7 @@ mod recorder;
 mod screenshot;
 mod settings;
 mod take;
+mod update;
 
 #[cfg(target_os = "android")]
 mod android;
@@ -77,6 +78,8 @@ struct App {
     played_tx: std::sync::mpsc::Sender<midi::Played>,
     settings: musiccraft_ui::Settings,
     settings_info: SettingsInfo,
+    /// The in-app update check (a stub away from Android).
+    updater: update::Updater,
     selected_channel: Arc<AtomicUsize>,
     synced_revision: Option<u64>,
     pending_offs: Vec<(Instant, u16, u8)>,
@@ -390,6 +393,11 @@ impl App {
             played_tx,
             settings,
             settings_info: SettingsInfo::default(),
+            updater: {
+                let updater = update::Updater::new(ctx.clone());
+                updater.check();
+                updater
+            },
             selected_channel,
             synced_revision: None,
             pending_offs: Vec::new(),
@@ -813,6 +821,16 @@ impl App {
                 self.ui.set_status(message, false);
                 return;
             }
+            Action::CheckUpdates => {
+                self.updater.check();
+                self.ui.set_status("checking for updates", false);
+                return;
+            }
+            Action::InstallUpdate => {
+                self.updater.download();
+                self.ui.set_status("downloading the update", false);
+                return;
+            }
             Action::Quit => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 return;
@@ -865,6 +883,13 @@ impl App {
             }
             Err(err) => self.ui.set_status(err, true),
         }
+    }
+
+    /// Hands a finished update download to the system installer and keeps
+    /// the settings window's update info current.
+    fn poll_updates(&mut self) {
+        self.updater.poll();
+        self.settings_info.updates = self.updater.info();
     }
 
     /// Shows a running split's progress, and adds the stems once it is done.
@@ -1616,6 +1641,7 @@ impl eframe::App for App {
         };
         self.serve_control();
         self.poll_stems();
+        self.poll_updates();
         self.drain_midi();
         self.record_audio();
         self.selected_channel
@@ -1722,6 +1748,14 @@ pub fn run_desktop() -> eframe::Result {
 /// whole surface.
 #[cfg(target_os = "android")]
 pub fn run_android(app: android_activity::AndroidApp) -> eframe::Result {
+    // Cover the status bar (and any decorations): the notification bar is in
+    // the way on phones. FORCE_NOT_FULLSCREEN is removed in case a vendor
+    // theme set it first.
+    app.set_window_flags(
+        android_activity::WindowManagerFlags::FULLSCREEN
+            | android_activity::WindowManagerFlags::LAYOUT_IN_SCREEN,
+        android_activity::WindowManagerFlags::FORCE_NOT_FULLSCREEN,
+    );
     android::set_app(app);
     android::init_logging();
     log("run_android: handing the activity to eframe");

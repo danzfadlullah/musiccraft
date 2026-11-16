@@ -12,8 +12,10 @@ link from API 29.
 | Piece | What it does |
 | --- | --- |
 | `crates/musiccraft-android` | The `cdylib` Android app: exports `android_main` and hands the `AndroidApp` handle to `musiccraft_app::run_android`. Built with [cargo-apk](https://github.com/rust-mobile/cargo-apk); its `[package.metadata.android]` block lives in that crate's `Cargo.toml`. |
+| `crates/musiccraft-android-installer` | Hands a downloaded APK to the system installer: writes it into `Download/MusicCraft/` through MediaStore and opens an `ACTION_VIEW` install intent over JNI. The one piece that must talk to Java. |
 | `musiccraft_app::run_android` | The shared application with no command line: the activity's surface is the window, and the app's private storage stands in for the desktop config folder (`crates/musiccraft-app/src/android.rs`). |
 | Touch style | On Android the theme gets wider hit targets and spacing (`apply_touch_style`); egui turns touch events into pointer input, so taps, drags and long presses work everywhere the mouse does. The system's display density sets the UI scale. |
+| Screen | Landscape only (`sensorLandscape`: both landscape sides, following the sensor) and fullscreen: the activity sets `FLAG_FULLSCREEN | FLAG_LAYOUT_IN_SCREEN`, so the status bar stays out of the way. The system's gesture pill remains; that is up to the launcher. |
 | File dialogs | rfd has no Android backend, so `musiccraft-file-dialog` builds against a stub that answers "cancelled" (`docs/spec/style/dialogs.md` keeps its desktop meaning). Move `.mcproj` files on and off the device with your file manager; open them through the browser panel's folders. |
 | MIDI | `midir` speaks Android MIDI, so USB and Bluetooth keyboards show up in Settings once connected. |
 | Audio | `cpal` opens the device through Android's audio stack; the engine runs in the callback exactly as on the desktop. |
@@ -22,6 +24,24 @@ Not available on Android (yet): CLAP and VST3 plugin hosting, Demucs stem
 splitting (no ONNX Runtime), audio input recording, and the live-control
 server. Everything else — channel rack, piano roll, playlist, mixer, the
 built-in instruments and effects, export — is the desktop code.
+
+## Updates
+
+The app checks its own updates against this fork's rolling `android`
+pre-release: once at start-up and again from **Settings → Updates**. When a
+newer build is published there, the tab offers **Download and install**: the
+APK streams down with a progress bar, lands in `Download/MusicCraft/` through
+MediaStore, and Android's installer opens to confirm the swap. The new build
+installs in place — same signature, no uninstall. If the installer cannot be
+opened (for example *install unknown apps* is off), the tab says where the
+APK copy is instead: `Android/data/io.github.bhimio1.musiccraft/files/
+MusicCraft/update/`, open it with a file manager.
+
+CI stamps every APK with the commit it was built from
+(`MUSICCRAFT_BUILD_SHA`); a build without the stamp (plain `cargo apk build`)
+cannot tell itself from the newest release, so the tab offers the update
+regardless. The `android.permission.INTERNET` permission exists for this
+check alone; nothing else in the app reaches the network.
 
 ## Logs
 
@@ -92,10 +112,12 @@ adb install target/release/apk/MusicCraft.apk
 
 ## Notes for contributors
 
-- The `unsafe_code = "forbid"` workspace rule has one deliberate exception:
+- The `unsafe_code = "forbid"` workspace rule has two deliberate exceptions:
   `musiccraft-android`'s `android_main` needs `#[unsafe(no_mangle)]` because
-  that exact symbol is what android-activity's glue looks up. The crate holds
-  nothing else, and does not inherit the workspace lints.
+  that exact symbol is what android-activity's glue looks up, and
+  `musiccraft-android-installer` talks to Java through JNI, which cannot be
+  written safely. Both crates hold nothing else and do not inherit the
+  workspace lints.
 - Settings, autosaves and recorded takes live in the app's private storage
   (`internalDataPath`), so they survive across runs but are not user-visible
   files.

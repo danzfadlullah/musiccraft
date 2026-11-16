@@ -95,6 +95,10 @@ jobs:
             echo "No keystore found: signing with a throwaway key."
           fi
       - name: Build the APK
+        env:
+          # Stamped into the APK so its update check can tell itself from
+          # the newest build on the Releases tab.
+          MUSICCRAFT_BUILD_SHA: ${{ github.sha }}
         run: |
           if [ "${{ github.event.inputs.profile }}" = "debug" ]; then
             cargo apk build -p musiccraft-android
