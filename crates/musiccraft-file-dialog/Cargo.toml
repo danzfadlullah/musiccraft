@@ -12,10 +12,13 @@ license.workspace = true
 # opens at run time through winit's `dlopen`).
 wayland = ["rfd/wayland"]
 
-# Android has no backend in rfd, so the crate builds against its own stub
-# there (see `src/lib.rs` and `docs/android.md`).
+# Android has no backend in rfd, so the crate builds against the system's
+# SAF panels there (see `src/lib.rs` and `docs/android.md`).
 [target.'cfg(not(target_os = "android"))'.dependencies]
 rfd.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+musiccraft-android-java.workspace = true
 
 [lints]
 workspace = true

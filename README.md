@@ -75,8 +75,9 @@ the installer cannot open, the tab says where the APK copy is. See
   and FLAC (16/24), one stem per mixer insert.
 
 Not on Android (yet): CLAP/VST3 plugin hosting, Demucs stem splitting, audio
-input recording, and file dialogs (move files with your file manager
-instead). Those stay desktop-only — see the upstream repository.
+input recording, folder picks in the file panels, and file-type filters in
+the SAF panels. Opening and saving projects works through the system's file
+picker instead.
 
 ## Build from source
 

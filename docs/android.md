@@ -12,18 +12,38 @@ link from API 29.
 | Piece | What it does |
 | --- | --- |
 | `crates/musiccraft-android` | The `cdylib` Android app: exports `android_main` and hands the `AndroidApp` handle to `musiccraft_app::run_android`. Built with [cargo-apk](https://github.com/rust-mobile/cargo-apk); its `[package.metadata.android]` block lives in that crate's `Cargo.toml`. |
-| `crates/musiccraft-android-installer` | Hands a downloaded APK to the system installer: writes it into `Download/MusicCraft/` through MediaStore and opens an `ACTION_VIEW` install intent over JNI. The one piece that must talk to Java. |
+| `crates/musiccraft-android-java` | The pieces that must talk to Java through JNI: hands a downloaded APK to the system installer (writes it into `Download/MusicCraft/` through MediaStore and opens an `ACTION_VIEW` install intent), and drives the system's SAF file picker. |
 | `musiccraft_app::run_android` | The shared application with no command line: the activity's surface is the window, and the app's private storage stands in for the desktop config folder (`crates/musiccraft-app/src/android.rs`). |
 | Touch style | On Android the theme gets wider hit targets and spacing (`apply_touch_style`); egui turns touch events into pointer input, so taps, drags and long presses work everywhere the mouse does. The system's display density sets the UI scale. |
 | Screen | Landscape only (`sensorLandscape`: both landscape sides, following the sensor) and fullscreen: the activity sets `FLAG_FULLSCREEN | FLAG_LAYOUT_IN_SCREEN`, so the status bar stays out of the way. The system's gesture pill remains; that is up to the launcher. |
-| File dialogs | rfd has no Android backend, so `musiccraft-file-dialog` builds against a stub that answers "cancelled" (`docs/spec/style/dialogs.md` keeps its desktop meaning). Move `.mcproj` files on and off the device with your file manager; open them through the browser panel's folders. |
+| File dialogs | rfd has no Android backend, so `musiccraft-file-dialog` builds against the system's SAF panels: **open** shows the file picker (`ACTION_OPEN_DOCUMENT`, multi-select included), and whatever is picked is copied into the app's cache and handed to the app as a normal file. **Save** opens `ACTION_CREATE_DOCUMENT` seeded with the suggested name, and every later write to that project is pushed back to the picked location automatically. Folder picks and file-type filters have no SAF equivalent here: folders answer "cancelled", and filters are ignored (the panel shows every file). |
 | MIDI | `midir` speaks Android MIDI, so USB and Bluetooth keyboards show up in Settings once connected. |
 | Audio | `cpal` opens the device through Android's audio stack; the engine runs in the callback exactly as on the desktop. |
 
 Not available on Android (yet): CLAP and VST3 plugin hosting, Demucs stem
-splitting (no ONNX Runtime), audio input recording, and the live-control
-server. Everything else — channel rack, piano roll, playlist, mixer, the
-built-in instruments and effects, export — is the desktop code.
+splitting (no ONNX Runtime), audio input recording, folder picks in the file
+panels, and the live-control server. Everything else — channel rack, piano
+roll, playlist, mixer, the built-in instruments and effects, export — is the
+desktop code.
+
+## The SAF picker and the Java activity
+
+Android hands a file panel's answer to `onActivityResult`, which a plain
+`NativeActivity` never forwards to native code. The app therefore ships one
+small Java class, `MusicCraftActivity` (in `crates/musiccraft-android/java`),
+an `NativeActivity` subclass whose `onActivityResult` stows the answer — the
+picked `content://` URIs, newline-separated — in a static field. The manifest
+points the activity at that class (`name` plus `has_code = true`), and the
+workflow compiles it with `javac` + `d8` into a `classes.dex` that is zip-
+injected into the APK, which is then realigned (`zipalign`) and re-signed
+(`apksigner`).
+
+On the Rust side, `musiccraft-android-java` polls that field over JNI from
+the file-dialog thread, copies each picked URI's bytes through the content
+resolver into the app's private cache, and hands the cache paths back as the
+dialog's answer. A save pick registers its cache file, and the app pushes
+every later write back to the picked URI each frame (`sync`), so saving
+lands where the user chose.
 
 ## Updates
 
@@ -90,7 +110,8 @@ and point `[package.metadata.android.signing.release]` at it.
 
 ## Building locally
 
-You need the SDK, the NDK and [cargo-apk](https://github.com/rust-mobile/cargo-apk):
+You need the SDK, the NDK, a JDK (for the activity's Java subclass) and
+[cargo-apk](https://github.com/rust-mobile/cargo-apk):
 
 ```sh
 rustup target add aarch64-linux-android armv7-linux-androideabi
@@ -110,14 +131,30 @@ adb install target/release/apk/MusicCraft.apk
 
 `cargo apk run` builds, installs and starts the activity in one step.
 
+A locally built APK does not carry the `classes.dex` (the workflow injects
+it), so its SAF file panels answer "cancelled" until you compile and inject
+it yourself:
+
+```sh
+javac -source 1.8 -target 1.8 -classpath "$ANDROID_HOME/platforms/android-34/android.jar" \
+  -d build/classes crates/musiccraft-android/java/io/github/bhimio1/musiccraft/MusicCraftActivity.java
+"$ANDROID_HOME/build-tools/34.0.0/d8" --release --min-api 29 \
+  --lib "$ANDROID_HOME/platforms/android-34/android.jar" --output build/dex \
+  build/classes/io/github/bhimio1/musiccraft/MusicCraftActivity.class
+cd target/release/apk && zip MusicCraft.apk classes.dex  # from build/dex
+"$ANDROID_HOME/build-tools/34.0.0/zipalign" -f -p 4 MusicCraft.apk aligned.apk
+"$ANDROID_HOME/build-tools/34.0.0/apksigner" sign --ks crates/musiccraft-android/release.keystore \
+  --ks-pass pass:musiccraft-ci --min-sdk-version 29 aligned.apk
+```
+
 ## Notes for contributors
 
 - The `unsafe_code = "forbid"` workspace rule has two deliberate exceptions:
   `musiccraft-android`'s `android_main` needs `#[unsafe(no_mangle)]` because
   that exact symbol is what android-activity's glue looks up, and
-  `musiccraft-android-installer` talks to Java through JNI, which cannot be
-  written safely. Both crates hold nothing else and do not inherit the
-  workspace lints.
+  `musiccraft-android-java` talks to Java through JNI (the update installer
+  and the SAF picker), which cannot be written safely. Both crates hold
+  nothing else and do not inherit the workspace lints.
 - Settings, autosaves and recorded takes live in the app's private storage
   (`internalDataPath`), so they survive across runs but are not user-visible
   files.

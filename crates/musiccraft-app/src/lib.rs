@@ -1642,6 +1642,10 @@ impl eframe::App for App {
         self.serve_control();
         self.poll_stems();
         self.poll_updates();
+        // A save-picked file's writes keep flowing to the place the user
+        // chose in the SAF panel.
+        #[cfg(target_os = "android")]
+        musiccraft_android_java::sync();
         self.drain_midi();
         self.record_audio();
         self.selected_channel
@@ -1756,6 +1760,9 @@ pub fn run_android(app: android_activity::AndroidApp) -> eframe::Result {
             | android_activity::WindowManagerFlags::LAYOUT_IN_SCREEN,
         android_activity::WindowManagerFlags::FORCE_NOT_FULLSCREEN,
     );
+    // The JNI bridge (update installer, SAF picker) keeps its own handle,
+    // because eframe consumes the one it is handed.
+    musiccraft_android_java::set_app(app.clone());
     android::set_app(app);
     android::init_logging();
     log("run_android: handing the activity to eframe");

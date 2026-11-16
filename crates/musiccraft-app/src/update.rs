@@ -1,6 +1,6 @@
 //! In-app updates: checks the rolling `android` pre-release on the GitHub
 //! Releases tab, downloads the APK with a progress bar, and hands it to the
-//! system installer (`musiccraft-android-installer`). Only the Android build
+//! system installer (`musiccraft-android-java`). Only the Android build
 //! talks to the network; elsewhere this is a no-op stub so the settings
 //! window can show the tab without the feature.
 
@@ -125,7 +125,7 @@ impl Updater {
         #[cfg(target_os = "android")]
         if let Some(bytes) = self.ready.lock().unwrap().take() {
             let installer = crate::android::app_handle()
-                .and_then(|app| musiccraft_android_installer::install_apk(&app, &bytes).ok());
+                .and_then(|app| musiccraft_android_java::install_apk(&app, &bytes).ok());
             let note = match installer {
                 Some(()) => {
                     crate::log("update: the system installer is open");

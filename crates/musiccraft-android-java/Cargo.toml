@@ -1,6 +1,6 @@
 [package]
-name = "musiccraft-android-installer"
-description = "Hands an in-memory APK to the Android system installer"
+name = "musiccraft-android-java"
+description = "The pieces of MusicCraft on Android that talk to Java: the in-app update installer and the SAF file picker"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

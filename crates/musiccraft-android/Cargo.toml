@@ -38,6 +38,10 @@ label = "MusicCraft"
 icon = "@mipmap/ic_launcher"
 # Test builds: keep the app debuggable so `adb logcat` shows everything.
 debuggable = true
+# The activity is a compiled Java subclass (crates/musiccraft-android/java),
+# so the APK must carry a classes.dex: it receives the SAF picker's answer
+# (docs/android.md).
+has_code = true
 
 [[package.metadata.android.uses_permission]]
 # Lets the log folder in Downloads work on Android 10; harmless above.
@@ -49,6 +53,8 @@ max_sdk_version = 29
 name = "android.permission.INTERNET"
 
 [package.metadata.android.application.activity]
+# The Java subclass that stows the SAF picker's answer for the native code.
+name = "io.github.bhimio1.musiccraft.MusicCraftActivity"
 # Landscape only: the DAW layout is built for a wide screen.
 orientation = "sensorLandscape"
 launch_mode = "singleTask"

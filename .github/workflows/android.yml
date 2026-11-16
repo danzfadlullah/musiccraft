@@ -12,6 +12,7 @@ on:
     paths:
       - ".github/workflows/android.yml"
       - "crates/musiccraft-android/**"
+      - "crates/musiccraft-android-java/**"
       - "crates/musiccraft-app/**"
       - "crates/musiccraft-file-dialog/**"
       - "Cargo.toml"
@@ -20,6 +21,7 @@ on:
     paths:
       - ".github/workflows/android.yml"
       - "crates/musiccraft-android/**"
+      - "crates/musiccraft-android-java/**"
       - "crates/musiccraft-app/**"
       - "crates/musiccraft-file-dialog/**"
       - "Cargo.toml"
@@ -61,6 +63,23 @@ jobs:
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install \
             "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;${NDK_VERSION}"
           echo "NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+      - name: Compile the activity's Java subclass
+        # MusicCraftActivity receives the SAF picker's answer for the native
+        # code (docs/android.md): javac compiles it, d8 turns it into a
+        # classes.dex that gets injected into the APK below, because
+        # cargo-apk has no dex support of its own.
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          mkdir -p build/classes build/dex
+          javac -source 1.8 -target 1.8 -nowarn \
+            -classpath "${ANDROID_HOME}/platforms/android-34/android.jar" \
+            -d build/classes \
+            crates/musiccraft-android/java/io/github/bhimio1/musiccraft/MusicCraftActivity.java
+          "${ANDROID_HOME}/build-tools/34.0.0/d8" --release --min-api 29 \
+            --lib "${ANDROID_HOME}/platforms/android-34/android.jar" \
+            --output build/dex \
+            build/classes/io/github/bhimio1/musiccraft/MusicCraftActivity.class
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi
@@ -107,14 +126,30 @@ jobs:
           fi
       - name: Collect the APK
         # One APK carrying both ARM ABIs (cargo-apk packs every
-        # `build_targets` entry into it).
+        # `build_targets` entry into it). The activity's classes.dex is
+        # injected by zip, then the APK is realigned and re-signed, because
+        # both break the archive's signature.
         run: |
           mkdir -p dist
           if [ "${{ github.event.inputs.profile }}" = "debug" ]; then
-            cp target/debug/apk/MusicCraft.apk dist/MusicCraft-android-debug.apk
+            APK=target/debug/apk/MusicCraft.apk
+            cp "$APK" dist/MusicCraft-android-debug.apk
+            APK=dist/MusicCraft-android-debug.apk
           else
-            cp target/release/apk/MusicCraft.apk dist/MusicCraft-android.apk
+            APK=target/release/apk/MusicCraft.apk
+            cp "$APK" dist/MusicCraft-android.apk
+            APK=dist/MusicCraft-android.apk
           fi
+          cp build/dex/classes.dex .
+          zip -q "$APK" classes.dex
+          rm classes.dex
+          "${ANDROID_HOME}/build-tools/34.0.0/zipalign" -f -p 4 "$APK" aligned.apk
+          mv aligned.apk "$APK"
+          "${ANDROID_HOME}/build-tools/34.0.0/apksigner" sign \
+            --ks crates/musiccraft-android/release.keystore \
+            --ks-pass "pass:${KEYSTORE_PASSWORD:-musiccraft-ci}" \
+            --min-sdk-version 29 "$APK"
+          "${ANDROID_HOME}/build-tools/34.0.0/apksigner" verify "$APK"
           ls -la dist
       - uses: actions/upload-artifact@v4
         with:

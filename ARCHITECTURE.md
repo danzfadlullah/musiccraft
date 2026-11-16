@@ -49,7 +49,7 @@ standalone/ (own workspace) ──► musiccraft-plugin-export
 | `musiccraft-patch` | Antiserum's patch format (`docs/spec/antiserum-app.md`): parameter values by name, table references, drawn LFO shapes and sequencer steps as MusicCraft's own JSON; also the base64 codec projects use. Plain data. |
 | `musiccraft-antiserum-presets` | Applies a patch to an Antiserum, formats any of its parameters for display, and holds the generated factory bank (150 presets). Loads oscillator samples (files or `builtin:` sounds, through `musiccraft-samples`) into `Source`s. Main thread only. |
 | `musiccraft-params` | Shared tables: timing (PPQ), instrument and effect parameter specs, built-in sound names. No logic. |
-| `musiccraft-file-dialog` | The system's file dialogs through `rfd`, one at a time and without blocking the window: a `Picker` runs the dialog on its own thread (in place on macOS, whose panels need the main thread) and hands the chosen paths back when polled. Used by the app and the exported plugins' editors. |
+| `musiccraft-file-dialog` | The system's file dialogs, one at a time and without blocking the window: a `Picker` runs the dialog on its own thread (in place on macOS, whose panels need the main thread) and hands the chosen paths back when polled. On desktop they go through `rfd`; on Android through the system's SAF panels (`musiccraft-android-java`). Used by the app and the exported plugins' editors. |
 | `musiccraft-paths` | Translates sample paths written on another system (Windows drives, FL Studio placeholders, Wine prefixes) into local files. No dependencies. |
 | `musiccraft-meter` | Time signatures and the bar and beat grid of a timeline (`TimeSig`, `Meter`). Queries are allocation-free, so the engine uses it too. |
 | `musiccraft-project` | Project data model and JSON file format. No audio, no UI. |
@@ -77,7 +77,7 @@ standalone/ (own workspace) ──► musiccraft-plugin-export
 | `standalone/` | `musiccraft-fx-standalone <effect>`: one effect as a standalone app (nih-plug's wrapper). Its own workspace and lockfile, because that wrapper's ALSA binding clashes with the app's. |
 | `musiccraft-app` | Wires session, bridge, audio device, MIDI input and UI together, and shows the file dialogs the UI asks for. A library plus a thin desktop binary; `run_android` is the Android entry point (`docs/android.md`). |
 | `musiccraft-android` | The Android app: a NativeActivity `cdylib` whose `android_main` hands the `AndroidApp` handle to `musiccraft-app`. Built with cargo-apk; one exception to the workspace `unsafe_code` forbid (the entry symbol). |
-| `musiccraft-android-installer` | Saves a downloaded APK into `Download/MusicCraft/` via MediaStore and opens the system installer over JNI; serves the in-app update. The other `unsafe_code` exception. |
+| `musiccraft-android-java` | The Android pieces that talk to Java through JNI: saves a downloaded APK into `Download/MusicCraft/` via MediaStore and opens the system installer (the in-app update), and drives the system's SAF file panels, copying picks into the app's cache and pushing saves back to the picked URI. The other `unsafe_code` exception. |
 | `xtask` | `cargo xtask parity`: checks the feature checklist against the registry and keymap. `cargo xtask bundle`: builds the plugin bundles. |
 
 ## Command registry

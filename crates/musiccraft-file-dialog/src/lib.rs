@@ -41,13 +41,25 @@ pub fn run(dialog: FileDialog, mode: Mode) -> Vec<PathBuf> {
     }
 }
 
-/// Android has no system file dialog rfd could drive, so every pick answers
-/// "cancelled". Projects move on and off the device through the file manager
-/// instead (`docs/android.md`).
+/// Android drives the system's SAF panels ([`musiccraft_android_java::pick`]):
+/// opens copy the file into the app's cache, and saves keep flowing to the
+/// place the user chose. Folders have no SAF panel here, so they answer
+/// "cancelled" (`docs/android.md`).
 #[cfg(target_os = "android")]
 #[must_use]
-pub fn run(_dialog: FileDialog, _mode: Mode) -> Vec<PathBuf> {
-    Vec::new()
+pub fn run(dialog: FileDialog, mode: Mode) -> Vec<PathBuf> {
+    let mode = match mode {
+        Mode::Folder => return Vec::new(),
+        Mode::File => musiccraft_android_java::SafMode::File,
+        Mode::Files => musiccraft_android_java::SafMode::Files,
+        Mode::Save => musiccraft_android_java::SafMode::Save {
+            suggested_name: dialog
+                ._file_name
+                .clone()
+                .unwrap_or_else(|| "untitled".to_owned()),
+        },
+    };
+    musiccraft_android_java::pick(musiccraft_android_java::SafRequest { mode })
 }
 
 /// One dialog at a time, with a tag saying what its answer is for.
@@ -125,7 +137,8 @@ impl<T> Picker<T> {
 #[cfg(target_os = "android")]
 mod android {
     //! A stand-in for rfd's builder, which has no Android backend: every
-    //! option is accepted and remembered, and nothing can be picked.
+    //! option is accepted and remembered, and the answers come from the
+    //! system's SAF panels.
 
     use std::path::Path;
 
@@ -133,6 +146,7 @@ mod android {
     #[derive(Default, Debug, Clone)]
     pub struct FileDialog {
         _title: Option<String>,
+        pub(crate) _file_name: Option<String>,
     }
 
     impl FileDialog {
@@ -154,7 +168,7 @@ mod android {
         }
 
         pub fn set_file_name(mut self, file_name: impl Into<String>) -> Self {
-            self._title = Some(file_name.into());
+            self._file_name = Some(file_name.into());
             self
         }
 

@@ -1929,7 +1929,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "musiccraft-android-installer"
+name = "musiccraft-android-java"
 version = "0.4.4"
 dependencies = [
  "android-activity",
@@ -1964,7 +1964,7 @@ dependencies = [
  "android-activity",
  "eframe",
  "midir",
- "musiccraft-android-installer",
+ "musiccraft-android-java",
  "musiccraft-audio",
  "musiccraft-cli",
  "musiccraft-commands",
@@ -2096,6 +2096,7 @@ dependencies = [
 name = "musiccraft-file-dialog"
 version = "0.4.4"
 dependencies = [
+ "musiccraft-android-java",
  "rfd",
 ]
 

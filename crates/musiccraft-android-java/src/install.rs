@@ -2,17 +2,12 @@
 //! into `Download/MusicCraft/` through MediaStore, and the resulting content
 //! URI opens in an `ACTION_VIEW` install intent. This is what makes the
 //! in-app update possible without a file manager.
-//!
-//! The workspace forbids `unsafe` code; like `musiccraft-android`'s
-//! `android_main`, this crate is a deliberate exception, because talking to
-//! Java (MediaStore, the installer intent) is only possible through JNI. It
-//! holds nothing else and does not inherit the workspace lints
-//! (docs/android.md, "Notes for contributors").
 
 use android_activity::AndroidApp;
-use jni::errors::Result as JniResult;
-use jni::objects::{JByteArray, JObject, JValue, JValueOwned};
+use jni::objects::{JByteArray, JObject, JValue};
 use jni::{JNIEnv, JavaVM};
+
+use crate::{checked, take};
 
 const MIME_APK: &str = "application/vnd.android.package-archive";
 const APK_NAME: &str = "MusicCraft-update.apk";
@@ -156,23 +151,4 @@ fn put_string<'local>(
     );
     checked(env, put)?;
     Ok(())
-}
-
-/// Pulls the object out of a JNI result, clearing any pending Java exception
-/// on the way so a failure cannot poison the next JNI call.
-fn take<'local>(
-    env: &mut JNIEnv<'local>,
-    result: JniResult<JValueOwned<'local>>,
-) -> Result<JObject<'local>, String> {
-    let object = checked(env, result)?;
-    object.l().map_err(|e| format!("JNI: {e}"))
-}
-
-/// Maps a JNI error to a message and clears any pending Java exception, so a
-/// failure cannot poison the next JNI call.
-fn checked<T>(env: &mut JNIEnv, result: JniResult<T>) -> Result<T, String> {
-    result.map_err(|e| {
-        let _ = env.exception_clear();
-        format!("JNI: {e}")
-    })
 }
