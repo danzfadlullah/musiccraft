@@ -19,6 +19,7 @@ mod project;
 mod rack;
 mod record;
 pub(crate) mod sample_paths;
+mod soundfont;
 mod transport;
 mod zones;
 
@@ -51,5 +52,6 @@ pub(crate) fn all() -> Vec<Box<dyn Command>> {
     commands.extend(plugin::commands());
     commands.extend(record::commands());
     commands.extend(zones::commands());
+    commands.extend(soundfont::commands());
     commands
 }

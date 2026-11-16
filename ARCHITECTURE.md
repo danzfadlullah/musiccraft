@@ -15,7 +15,8 @@ musiccraft-app ──► musiccraft-ui ──► musiccraft-commands ──► m
       │                                     ▲    └──► musiccraft-flp                  ▲
       ├──► musiccraft-render ───────────────┤                                         │
       │        ├──► musiccraft-engine ──► musiccraft-dsp ─────────────────────────────┤
-      │        └──► musiccraft-samples ──► musiccraft-dsp                              │
+      │        └──► musiccraft-samples ──► musiccraft-soundfont                      │
+      │                   └────────► musiccraft-dsp                              │
       ├──► musiccraft-audio ──► musiccraft-engine                                      │
       │                                                                                │
 musiccraft-cli ──► commands, render, audio                                             │
@@ -63,6 +64,7 @@ standalone/ (own workspace) ──► musiccraft-plugin-export
 | `musiccraft-stems` | Splits a stereo sound into vocals, drums, bass and other stems (`docs/spec/stems.md`): harmonic–percussive median filtering, frequency bands and stereo centre weighting on a short-time spectrum, with stems that add back up to the sound. No model, no dependencies beyond `musiccraft-dsp`'s FFT. Main or worker thread. |
 | `musiccraft-demucs` | Demucs (HTDemucs, MIT) in ONNX Runtime (`ort`, loaded at run time): finds and loads the runtime, opens the model on the first GPU execution provider that takes it (CUDA, MIGraphX, ROCm, DirectML or CoreML, then WebGPU), else the CPU, and does what Demucs's `apply_model` does around the network: normalising, overlapping segments, its exact transforms and cross-fades. The model comes from `tools/stem-model/export.py`. Main or worker thread. |
 | `musiccraft-samples` | WAV decoding/encoding, FLAC encoding, MP3 and Ogg Vorbis encoding (LAME, libvorbis), sample cache, synthesized built-in sounds. Main thread only. |
+| `musiccraft-soundfont` | SoundFont 2/3 reader (`docs/spec/channel-rack.md`, "Soundfonts"): parses `.sf2`/`.sf3` files into presets and zones, decodes their PCM and Ogg Vorbis samples for the sample cache's `soundfont:<file>#<index>` references. Main thread only. |
 | `musiccraft-clap` | CLAP plugin host: scanning, loading, instances, the audio-thread processor, plugin windows. **Allowed to use `unsafe`** (with its test fixture `musiccraft-clap-testplugin`). |
 | `musiccraft-vst3` | VST3 plugin host: scanning modules, component and controller setup, parameters, state, the audio-thread processor, embedded plugin windows. **Allowed to use `unsafe`** (with its test fixture `musiccraft-vst3-testplugin`). |
 | `musiccraft-plugin-window` | The plain X11 window both plugin hosts embed plugin views in. Safe code. |

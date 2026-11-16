@@ -4,8 +4,13 @@ use std::sync::Arc;
 
 use musiccraft_dsp::SampleBuffer;
 use musiccraft_params::BUILTIN_PREFIX;
+use musiccraft_soundfont::Soundfont;
 
 use crate::{SampleError, builtin, load_wav};
+
+/// The sample references a SoundFont preset's zones name:
+/// `soundfont:<file>#<sample index>`.
+const SOUND_FONT: &str = "soundfont:";
 
 /// Decoded samples keyed by their resolved location, so each file is decoded
 /// once and shared between channels.
@@ -25,6 +30,26 @@ fn resolve(sample: &str, base_dir: Option<&Path>) -> PathBuf {
         Some(candidate) if candidate.exists() => candidate,
         _ => path.to_path_buf(),
     }
+}
+
+/// Decodes `rest` (`<file>#<sample index>`): the soundfont is parsed and the
+/// sample taken out of its sample data.
+fn soundfont_sample(rest: &str, base_dir: Option<&Path>) -> Result<SampleBuffer, SampleError> {
+    let Some((file, sample)) = rest.split_once('#') else {
+        return Err(SampleError::Format(format!(
+            "a soundfont reference names `file#sample`, not `{rest}`"
+        )));
+    };
+    let index: u16 = sample
+        .parse()
+        .map_err(|_| SampleError::Format(format!("soundfont sample `{sample}` is not a number")))?;
+    let path = resolve(file, base_dir);
+    let bytes = std::fs::read(&path)
+        .map_err(|e| SampleError::Io(format!("cannot read {}: {e}", path.display())))?;
+    let font = Soundfont::parse(&bytes)
+        .map_err(|e| SampleError::Format(format!("{}: {e}", path.display())))?;
+    let (left, right, rate) = font.sample_stereo(index).map_err(SampleError::Format)?;
+    Ok(SampleBuffer::stereo(left, right, f64::from(rate)))
 }
 
 impl SampleCache {
@@ -47,6 +72,15 @@ impl SampleCache {
         base_dir: Option<&Path>,
         sample_rate: u32,
     ) -> Result<Arc<SampleBuffer>, SampleError> {
+        if let Some(rest) = sample.strip_prefix(SOUND_FONT) {
+            // A soundfont sample decodes the same at every rate.
+            if let Some(buffer) = self.entries.get(sample) {
+                return Ok(Arc::clone(buffer));
+            }
+            let buffer = Arc::new(soundfont_sample(rest, base_dir)?);
+            self.entries.insert(sample.to_owned(), Arc::clone(&buffer));
+            return Ok(buffer);
+        }
         let key = match sample.strip_prefix(BUILTIN_PREFIX) {
             Some(name) => format!("{BUILTIN_PREFIX}{name}@{sample_rate}"),
             None => resolve(sample, base_dir).to_string_lossy().into_owned(),

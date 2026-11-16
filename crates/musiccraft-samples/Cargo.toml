@@ -9,6 +9,7 @@ license.workspace = true
 
 [dependencies]
 musiccraft-dsp.workspace = true
+musiccraft-soundfont.workspace = true
 musiccraft-params.workspace = true
 hound.workspace = true
 mp3lame-encoder.workspace = true

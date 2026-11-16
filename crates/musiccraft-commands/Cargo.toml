@@ -16,6 +16,7 @@ musiccraft-instruments.workspace = true
 musiccraft-patch.workspace = true
 musiccraft-formula.workspace = true
 musiccraft-project.workspace = true
+musiccraft-soundfont.workspace = true
 serde.workspace = true
 musiccraft-paths.workspace = true
 serde_json.workspace = true

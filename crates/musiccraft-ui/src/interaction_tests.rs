@@ -4784,6 +4784,7 @@ fn file_menu_items_ask_for_the_system_file_dialog() {
         ("ui.export", crate::Pick::Export),
         ("ui.export_midi", crate::Pick::ExportMidi),
         ("ui.import_midi", crate::Pick::ImportMidi(0)),
+        ("ui.add_soundfont", crate::Pick::AddSoundfont),
         ("ui.export_stems", crate::Pick::ExportStems),
     ] {
         let frame_actions = vec![Action::Run(musiccraft_commands::Invocation::bare(name))];

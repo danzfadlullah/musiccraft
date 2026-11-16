@@ -15,6 +15,8 @@ on:
       - "crates/musiccraft-android-java/**"
       - "crates/musiccraft-app/**"
       - "crates/musiccraft-file-dialog/**"
+      - "crates/musiccraft-soundfont/**"
+      - "crates/musiccraft-samples/**"
       - "Cargo.toml"
       - "Cargo.lock"
   pull_request:
@@ -24,6 +26,8 @@ on:
       - "crates/musiccraft-android-java/**"
       - "crates/musiccraft-app/**"
       - "crates/musiccraft-file-dialog/**"
+      - "crates/musiccraft-soundfont/**"
+      - "crates/musiccraft-samples/**"
       - "Cargo.toml"
       - "Cargo.lock"
   workflow_dispatch:

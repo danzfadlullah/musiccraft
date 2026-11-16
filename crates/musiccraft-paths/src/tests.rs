@@ -178,3 +178,16 @@ fn overrides_come_first_and_maps_parse() {
         ]
     );
 }
+
+#[test]
+fn soundfont_references_resolve_their_file_and_keep_the_pick() {
+    let root = tree("soundfont", &["Fonts/General.sf2"]);
+    let mut resolver = Resolver::default();
+    let base = root.join("Songs");
+    std::fs::create_dir_all(&base).unwrap();
+    assert_eq!(
+        sample_path("soundfont:Fonts/General.sf2#12", Some(&base), &mut resolver),
+        format!("soundfont:{}/Songs/Fonts/General.sf2#12", root.display())
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

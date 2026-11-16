@@ -55,6 +55,8 @@ pub enum Pick {
     /// A MIDI file's notes into this channel (0-based), like FL Studio's
     /// File → Import → MIDI file.
     ImportMidi(usize),
+    /// A new zone sampler playing a SoundFont preset.
+    AddSoundfont,
     AddFolder,
     AddPluginFolder,
     /// Settings → Folders: the FL Studio factory and user data folders.
@@ -112,6 +114,7 @@ const OPEN_PATCH_FILES: [(&str, &[&str]); 3] = [
     ("Serum preset", &["fxp", "SerumPreset"]),
 ];
 const MIDI_FILES: (&str, &[&str]) = ("MIDI file", &["mid", "midi"]);
+const SOUND_FONT_FILES: (&str, &[&str]) = ("SoundFont", &["sf2", "sf3"]);
 /// Export formats, the first the default.
 const EXPORT_FILES: [(&str, &[&str]); 4] = [
     ("WAV audio", &["wav"]),
@@ -150,6 +153,7 @@ impl FilePick {
         let filters = match pick {
             Pick::Open | Pick::SaveAs => vec![PROJECT_FILES],
             Pick::ImportMidi(_) => vec![MIDI_FILES],
+            Pick::AddSoundfont => vec![SOUND_FONT_FILES],
             Pick::Export => EXPORT_FILES.to_vec(),
             Pick::ExportMidi => vec![MIDI_FILES],
             Pick::SavePatch(_) => vec![PATCH_FILES],
@@ -231,6 +235,15 @@ impl FilePick {
         Self::new(
             Pick::ImportMidi(channel),
             "Import MIDI file",
+            project_dir(project),
+        )
+    }
+
+    /// A SoundFont whose chosen preset becomes a new zone sampler channel.
+    pub fn soundfont(project: &Project) -> Self {
+        Self::new(
+            Pick::AddSoundfont,
+            "Add a SoundFont channel",
             project_dir(project),
         )
     }
@@ -322,6 +335,7 @@ impl FilePick {
             Pick::SetSample(c) => Invocation::new("channel.set_sample", [ch(c), text]),
             Pick::AddZone(c) => Invocation::new("channel.add_zone", [ch(c), text]),
             Pick::ImportMidi(c) => Invocation::new("note.import_midi", [ch(c), text]),
+            Pick::AddSoundfont => Invocation::new("channel.add_soundfont", [text]),
             Pick::SetPad(c, pad) => Invocation::new("channel.set_pad", [ch(c), ch(pad), text]),
             Pick::SetEffectFile(track, slot) => {
                 Invocation::new("mixer.set_effect_file", [track.to_string(), ch(slot), text])
@@ -828,6 +842,9 @@ mod tests {
         let midi = FilePick::import_midi(&project, 2);
         assert_eq!(midi.mode(), PickMode::File);
         assert_eq!(midi.filters, [("MIDI file", &["mid", "midi"][..])]);
+        let soundfont = FilePick::soundfont(&project);
+        assert_eq!(soundfont.mode(), PickMode::File);
+        assert_eq!(soundfont.filters, [("SoundFont", &["sf2", "sf3"][..])]);
         let open = FilePick::open_patch(1, &project);
         assert!(
             open.filters[0].1.contains(&"SerumPreset"),
@@ -879,6 +896,12 @@ mod tests {
         assert_eq!(
             run(state.picked(&midi, &song)),
             ["note.import_midi 2 /songs/Song.mid"]
+        );
+        // A SoundFont becomes a new zone sampler channel.
+        let font = [PathBuf::from("/fonts/General.sf2")];
+        assert_eq!(
+            run(state.picked(&FilePick::soundfont(&project), &font)),
+            ["channel.add_soundfont /fonts/General.sf2"]
         );
         let osc = FilePick::sample(Pick::AntiserumSample(0, 1), "", &project);
         assert_eq!(

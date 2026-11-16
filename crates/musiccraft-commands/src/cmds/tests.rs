@@ -2708,3 +2708,134 @@ fn splitting_undoes_and_redoes_exactly() {
         "pattern.split_by_channel 2",
     ]);
 }
+
+/// A minimal mono `.sf2`: one preset "Grand", one instrument, one sample over
+/// keys 36–84, root key 60, tuned down an octave — the same shape the
+/// `musiccraft-soundfont` tests build.
+fn soundfont_file(dir: &std::path::Path) -> std::path::PathBuf {
+    fn chunk(out: &mut Vec<u8>, id: &[u8; 4], body: &[u8]) {
+        out.extend_from_slice(id);
+        out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        out.extend_from_slice(body);
+    }
+    fn list(out: &mut Vec<u8>, kind: &[u8; 4], sub: &[u8]) {
+        let mut body = kind.to_vec();
+        body.extend_from_slice(sub);
+        chunk(out, b"LIST", &body);
+    }
+    fn pair(op: u16, amount: u16) -> Vec<u8> {
+        let mut bytes = op.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&amount.to_le_bytes());
+        bytes
+    }
+    fn bag(generators: u16) -> Vec<u8> {
+        let mut bytes = generators.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes
+    }
+    let mut pcm = Vec::new();
+    for i in 0..441 {
+        let t = i as f32 / 44_100.0;
+        let value = (std::f32::consts::TAU * 440.0 * t).sin() * 0.5;
+        pcm.extend_from_slice(&((value * f32::from(i16::MAX)) as i16).to_le_bytes());
+    }
+    let mut file = Vec::new();
+    chunk(&mut file, b"RIFF", b"sfbk");
+    let mut info = Vec::new();
+    chunk(&mut info, b"ifil", &[2, 0, 4, 0]);
+    chunk(&mut info, b"INAM", b"Test font\0");
+    let mut sdta = Vec::new();
+    chunk(&mut sdta, b"smpl", &pcm);
+    let mut pdta = Vec::new();
+    let mut preset = vec![0u8; 20];
+    preset[..5].copy_from_slice(b"Grand");
+    preset.extend_from_slice(&0u16.to_le_bytes());
+    preset.extend_from_slice(&0u16.to_le_bytes());
+    preset.extend_from_slice(&0u16.to_le_bytes());
+    preset.extend_from_slice(&[0u8; 12]);
+    let mut end = preset.clone();
+    end[..20].fill(0);
+    end[..3].copy_from_slice(b"EOP");
+    end[20 + 8..20 + 10].copy_from_slice(&1u16.to_le_bytes());
+    chunk(&mut pdta, b"phdr", &[preset, end].concat());
+    let mut pbag = bag(0);
+    pbag.extend(bag(2));
+    chunk(&mut pdta, b"pbag", &pbag);
+    let mut pgen = pair(38, 0);
+    pgen.extend(pair(40, 36 | (84 << 8)));
+    chunk(&mut pdta, b"pgen", &pgen);
+    let mut instrument = vec![0u8; 20];
+    instrument[..5].copy_from_slice(b"Piano");
+    let mut end = vec![0u8; 20];
+    end.extend_from_slice(&2u16.to_le_bytes());
+    chunk(&mut pdta, b"inst", &[instrument, end].concat());
+    let mut ibag = bag(0);
+    ibag.extend(bag(3));
+    chunk(&mut pdta, b"ibag", &ibag);
+    let mut igen = pair(54, 0);
+    igen.extend(pair(59, 60));
+    igen.extend(pair(52, (-12i16) as u16));
+    chunk(&mut pdta, b"igen", &igen);
+    let mut sample = vec![0u8; 20];
+    sample[..4].copy_from_slice(b"Tone");
+    for value in [0u32, pcm.len() as u32 / 2, 0, 0, 44_100] {
+        sample.extend_from_slice(&value.to_le_bytes());
+    }
+    sample.push(60);
+    sample.push(0);
+    sample.extend_from_slice(&0u16.to_le_bytes());
+    sample.extend_from_slice(&0u16.to_le_bytes());
+    chunk(&mut pdta, b"shdr", &[sample, vec![0u8; 46]].concat());
+    list(&mut file, b"INFO", &info);
+    list(&mut file, b"sdta", &sdta);
+    list(&mut file, b"pdta", &pdta);
+    let size = (file.len() - 8) as u32;
+    file[4..8].copy_from_slice(&size.to_le_bytes());
+    let path = dir.join("Test.sf2");
+    std::fs::write(&path, file).unwrap();
+    path
+}
+
+#[test]
+fn soundfont_commands_fill_zone_samplers() {
+    let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sf2-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let font = soundfont_file(&dir).to_string_lossy().into_owned();
+
+    let mut s = session();
+    let listed = s
+        .run_line(&format!("soundfont.presets {font}"))
+        .expect("presets");
+    assert_eq!(listed.message, "1 0:0 Grand");
+
+    run(&mut s, "channel.add_synth");
+    fails(&mut s, &format!("channel.load_soundfont 1 {font}"));
+    run(&mut s, "channel.add_zones");
+    let added = s
+        .run_line(&format!("channel.add_soundfont {font}"))
+        .expect("add_soundfont");
+    assert_eq!(added.message, "added channel 3 (Grand)");
+    let Instrument::Zones { zones } = &s.project().channels[2].instrument else {
+        panic!("not a zone sampler");
+    };
+    assert_eq!(zones.len(), 1);
+    assert_eq!(zones[0].low, 36);
+    assert_eq!(zones[0].high, 84);
+    assert_eq!(zones[0].root, 72);
+    assert_eq!(zones[0].sample, format!("soundfont:{font}#0"));
+
+    let loaded = s
+        .run_line(&format!("channel.load_soundfont 2 {font}"))
+        .expect("load_soundfont");
+    assert_eq!(loaded.message, "channel 2: Grand");
+    run(&mut s, "edit.undo");
+    let Instrument::Zones { zones } = &s.project().channels[1].instrument else {
+        panic!("not a zone sampler");
+    };
+    assert!(zones.is_empty(), "the old zones came back");
+    run(&mut s, "edit.undo");
+    assert_eq!(s.project().channels.len(), 2, "add_soundfont undid");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

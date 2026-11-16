@@ -1280,6 +1280,7 @@ fn resolve_ui_actions(state: &mut UiState, frame: &Frame<'_>, actions: Vec<Actio
                 frame.project,
                 state.selected_channel,
             )),
+            "ui.add_soundfont" => state.pick_file(dialogs::FilePick::soundfont(frame.project)),
             "ui.quit" => out.push(Action::Quit),
             "ui.typing_keyboard" => state.typing_keyboard = !state.typing_keyboard,
             "ui.copy_control" => {

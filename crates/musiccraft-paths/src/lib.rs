@@ -378,6 +378,8 @@ pub fn data_dir() -> Option<PathBuf> {
 
 /// Prefix of the built-in sounds' names (`musiccraft_params::BUILTIN_PREFIX`).
 const BUILTIN: &str = "builtin:";
+/// A SoundFont preset's sample: `soundfont:<file>#<sample index>`.
+const SOUND_FONT: &str = "soundfont:";
 
 /// Where a sample a project names is: built-in and empty names as they are,
 /// foreign paths through `resolver`, relative paths from `base` (the project
@@ -387,6 +389,13 @@ pub fn sample_path(sample: &str, base: Option<&Path>, resolver: &mut Resolver) -
     // An empty sample stays empty instead of naming the project folder.
     if sample.is_empty() || sample.starts_with(BUILTIN) {
         return sample.to_owned();
+    }
+    // A soundfont reference resolves its file part and keeps the pick.
+    if let Some(rest) = sample.strip_prefix(SOUND_FONT)
+        && let Some((file, pick)) = rest.split_once('#')
+    {
+        let resolved = sample_path(file, base, resolver);
+        return format!("{SOUND_FONT}{resolved}#{pick}");
     }
     if let Some(found) = resolver.resolve(sample, base) {
         return found.to_string_lossy().into_owned();

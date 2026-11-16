@@ -254,6 +254,7 @@ fn mime_of(extension: &str) -> Option<&'static str> {
         "ogg" => Some("audio/ogg"),
         "flac" => Some("audio/flac"),
         "mid" | "midi" => Some("audio/midi"),
+        "sf2" | "sf3" => Some("application/x-soundfont"),
         "m4a" => Some("audio/mp4"),
         "aif" | "aiff" => Some("audio/aiff"),
         "json" | "mcproj" => Some("application/json"),

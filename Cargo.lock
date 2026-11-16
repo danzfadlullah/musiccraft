@@ -2042,6 +2042,7 @@ dependencies = [
  "musiccraft-paths",
  "musiccraft-project",
  "musiccraft-serum",
+ "musiccraft-soundfont",
  "serde",
  "serde_json",
 ]
@@ -2247,6 +2248,7 @@ dependencies = [
  "mp3lame-encoder",
  "musiccraft-dsp",
  "musiccraft-params",
+ "musiccraft-soundfont",
  "symphonia",
  "vorbis_rs",
 ]
@@ -2261,6 +2263,14 @@ dependencies = [
  "musiccraft-wavetables",
  "ruzstd",
  "serde_json",
+]
+
+[[package]]
+name = "musiccraft-soundfont"
+version = "0.6.0"
+dependencies = [
+ "symphonia",
+ "vorbis_rs",
 ]
 
 [[package]]

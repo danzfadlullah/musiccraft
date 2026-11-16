@@ -15,6 +15,7 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 musiccraft-app = { path = "crates/musiccraft-app" }
 musiccraft-android-java = { path = "crates/musiccraft-android-java" }
+musiccraft-soundfont = { path = "crates/musiccraft-soundfont" }
 ureq = { version = "2", default-features = false, features = ["tls"] }
 ring = "0.17"
 musiccraft-project = { path = "crates/musiccraft-project" }

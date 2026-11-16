@@ -366,6 +366,28 @@ Out channels voice their own notes and are never cut.
 - The editor lists the zones with their sample and ranges as dragged
   numbers, a delete button per zone and "Add zone…" (asks for a sample).
 
+## Soundfonts
+
+- `channel.add_soundfont <file.sf2> [preset] [name]` reads a SoundFont 2
+  (`.sf2`) or 3 (`.sf3`) file and adds a zone sampler whose zones are the
+  chosen preset's (1-based, default 1), named after the preset unless a
+  `name` is given.
+- `channel.load_soundfont <channel> <file.sf2> [preset]` replaces a zone
+  sampler's zones the same way; `soundfont.presets <file.sf2>` lists a
+  file's presets as `index bank:program name` (not undoable, changes
+  nothing).
+- A preset's zones keep the SoundFont's key ranges, velocity ranges and
+  tuning (root key minus coarse and fine tune, rounded to a whole
+  semitone). Each zone's sample is a `soundfont:<file>#<sample index>`
+  reference the sample cache decodes out of the soundfont file itself, so
+  a project keeps working without the soundfont's samples as loose files;
+  `musiccraft-paths` resolves the file part like any sample path.
+- Stereo samples play as two-zone pairs linked by the SoundFont's sample
+  link; `.sf3` samples (Ogg Vorbis) decode through the same path as PCM.
+- Not in the first version: sample looping, envelopes, LFOs, pan and
+  attenuation, and the keynum/velocity tuning and filtering generators
+  (a drum preset's pitches follow the keys as written).
+
 ## Drum kit
 
 - `channel.add_kit [name]` adds a 16-pad sample kit; key `root_key + n`
@@ -473,6 +495,11 @@ square partials), normalized to a 0.9 peak and faded out at the end.
 
 ## Sources
 
+- The SoundFont loader (`docs/spec/channel-rack.md`, "Soundfonts") reads the
+  open standard SoundFont 2.04 file format (the `sf2`/`sfbk` RIFF layout and
+  its phdr/pbag/pgen/inst/ibag/igen/shdr tables); the command set, the
+  `soundfont:` sample references, the zone flattening and everything the
+  format does not pin down are our own design.
 - The channel settings window's fixed header and tabbed pages follow the
   layout described in the FL Studio online manual, "Channel settings"
   (sampler and instrument pages, miscellaneous functions), with our own

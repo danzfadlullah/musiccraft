@@ -53,7 +53,7 @@ fn add_zones(project: &mut Project, args: &Args<'_>) -> Result<Outcome, CommandE
 }
 
 /// The zones of channel `index`, or an error if it is not a zone sampler.
-fn zones_mut<'a>(
+pub(super) fn zones_mut<'a>(
     project: &'a mut Project,
     args: &Args<'_>,
     index: usize,

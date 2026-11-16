@@ -73,11 +73,17 @@ installer cannot open, the tab says where the APK copy is. See
   47 built-in effects, the built-in instruments (synth, FM, keys, additive,
   granular, drum synth, 16-pad kit, plucked, layer, sampler, Antiserum) and
   the browser.
+- **Soundfonts**: **Add → More instruments → Soundfont (SF2/SF3)** turns a
+  `.sf2`/`.sf3` preset into a zone sampler channel, so imported MIDI files
+  play with real instrument sounds (General MIDI files sound right through
+  a General MIDI soundfont).
 - **Audio and MIDI**: output through AAudio, MIDI keyboards in and gear out
   through AMidi (USB and Bluetooth).
 - **Projects and export**: open and save `.mcproj`, import MIDI files into
   the selected channel (**File → Import MIDI file…**, like FL Studio),
-  export WAV (16/24/32f) and FLAC (16/24), one stem per mixer insert.
+  export WAV (16/24/32f) and FLAC (16/24), one stem per mixer insert. A
+  typical start: import the MIDI file, add a soundfont channel, then drag
+  the imported notes onto it in the piano roll.
 
 Not on Android (yet): CLAP/VST3 plugin hosting, Demucs stem splitting, audio
 input recording, and folder picks in the file panels. Opening and saving
