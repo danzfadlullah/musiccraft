@@ -174,8 +174,10 @@ pub struct SettingsInfo {
 /// What the app reports about its own updates (Android). Read-only.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UpdateInfo {
+    /// The app's semantic version (the workspace version).
+    pub version: String,
     /// The commit this build was made from; empty when built outside CI.
-    pub build: String,
+    pub commit: String,
     /// The update check's outcome.
     pub status: UpdateStatus,
 }
@@ -190,9 +192,10 @@ pub enum UpdateStatus {
     Checking,
     /// The installed build is the newest one.
     UpToDate,
-    /// A newer build is published: its short commit, its publish date and
-    /// the APK size in bytes.
+    /// A newer build is published: its version, its short commit, its
+    /// publish date and the APK size in bytes.
     Available {
+        version: String,
         build: String,
         published: String,
         size: u64,
@@ -916,17 +919,14 @@ fn updates(ui: &mut egui::Ui, info: &UpdateInfo, actions: &mut Vec<Action>) {
     #[cfg(target_os = "android")]
     {
         ui.add_space(4.0);
-        if info.build.is_empty() {
-            ui.label(
-                "This build has no version stamp (built outside CI), so it \
-                 cannot tell whether it is the newest.",
-            );
-        } else {
-            ui.label(format!(
-                "Installed build: {}",
-                &info.build[..info.build.len().min(7)]
+        let mut installed = format!("Installed version: {}", info.version);
+        if !info.commit.is_empty() {
+            installed.push_str(&format!(
+                " (build {})",
+                &info.commit[..info.commit.len().min(7)]
             ));
         }
+        ui.label(installed);
         ui.add_space(8.0);
         match &info.status {
             UpdateStatus::Idle | UpdateStatus::Failed(_) => {
@@ -951,12 +951,18 @@ fn updates(ui: &mut egui::Ui, info: &UpdateInfo, actions: &mut Vec<Action>) {
                 }
             }
             UpdateStatus::Available {
+                version,
                 build,
                 published,
                 size,
             } => {
+                let what = if version.is_empty() {
+                    format!("build {build}")
+                } else {
+                    format!("version {version} (build {build})")
+                };
                 ui.label(format!(
-                    "Update available: build {build} ({published}, {:.1} MB)",
+                    "Update available: {what} ({published}, {:.1} MB)",
                     *size as f64 / 1e6
                 ));
                 ui.add_space(4.0);

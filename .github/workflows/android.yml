@@ -166,7 +166,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The app's own update check reads this line from the release
+          # notes to compare semantic versions.
+          VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2)
           {
+            echo "Version: ${VERSION} (commit ${GITHUB_SHA:0:7})"
+            echo
             echo "Automatic test build of ${GITHUB_SHA}."
             echo
             echo "- One APK for arm64-v8a and armeabi-v7a; Android 10 or newer."
@@ -181,5 +186,5 @@ jobs:
           gh release create android "dist/MusicCraft-android.apk" \
             --prerelease \
             --target "$GITHUB_SHA" \
-            --title "MusicCraft for Android (auto-build)" \
+            --title "MusicCraft for Android ${VERSION} (auto-build)" \
             --notes-file dist/notes.md

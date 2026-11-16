@@ -21,14 +21,23 @@ const APK_NAME: &str = "MusicCraft-android.apk";
 const USER_AGENT: &str = "MusicCraft-Android";
 
 /// The commit this APK was made from; CI stamps it into every build. Empty
-/// on a plain `cargo apk build`, which then cannot tell old from new.
+/// on a plain `cargo apk build`.
 pub fn build_sha() -> &'static str {
     option_env!("MUSICCRAFT_BUILD_SHA").unwrap_or("")
+}
+
+/// The app's semantic version: the workspace version every crate shares, so
+/// the settings panel shows something readable instead of a commit.
+pub fn build_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
 }
 
 /// The newest build on the Releases tab.
 #[cfg(target_os = "android")]
 struct Latest {
+    /// The release's semantic version, from its notes' `Version:` line;
+    /// empty when the notes predate stamping.
+    version: String,
     sha: String,
     published: String,
     url: String,
@@ -56,7 +65,8 @@ impl Updater {
     /// What the settings window shows right now.
     pub fn info(&self) -> UpdateInfo {
         UpdateInfo {
-            build: build_sha().to_owned(),
+            version: build_version().to_owned(),
+            commit: build_sha().to_owned(),
             status: self.status.lock().unwrap().clone(),
         }
     }
@@ -70,19 +80,30 @@ impl Updater {
             let ctx = self.ctx.clone();
             thread::spawn(move || {
                 let next = match latest_build() {
-                    Ok(latest) => match build_sha() {
-                        "" => UpdateStatus::Available {
-                            build: short(&latest.sha),
-                            published: latest.published,
-                            size: latest.size,
-                        },
-                        sha if latest.sha.starts_with(sha) => UpdateStatus::UpToDate,
-                        _ => UpdateStatus::Available {
-                            build: short(&latest.sha),
-                            published: latest.published,
-                            size: latest.size,
-                        },
-                    },
+                    Ok(latest) => {
+                        let current_sha = build_sha();
+                        let same_build =
+                            !current_sha.is_empty() && latest.sha.starts_with(current_sha);
+                        let newer_release = newer(&latest.version, build_version());
+                        let older_release = !latest.version.is_empty()
+                            && latest.version != build_version()
+                            && !newer_release;
+                        // The release is this exact build, or an older
+                        // version than the one installed: nothing to do.
+                        // A newer version, the same version rebuilt (the
+                        // rolling release after every push), or a release
+                        // without a version stamp: offer the update.
+                        if same_build || older_release {
+                            UpdateStatus::UpToDate
+                        } else {
+                            UpdateStatus::Available {
+                                version: latest.version,
+                                build: short(&latest.sha),
+                                published: latest.published,
+                                size: latest.size,
+                            }
+                        }
+                    }
                     Err(err) => UpdateStatus::Failed(err),
                 };
                 crate::log(&format!("update check: {:?}", next));
@@ -159,6 +180,30 @@ fn short(sha: &str) -> String {
     sha.chars().take(7).collect()
 }
 
+/// Whether semantic version `a` is greater than `b` (numeric triples;
+/// anything unparsable counts as 0).
+#[cfg(target_os = "android")]
+fn newer(a: &str, b: &str) -> bool {
+    for index in 0..3 {
+        let left = version_number(a, index);
+        let right = version_number(b, index);
+        if left != right {
+            return left > right;
+        }
+    }
+    false
+}
+
+/// One component of a semantic version, or 0 past the end.
+#[cfg(target_os = "android")]
+fn version_number(version: &str, index: usize) -> u64 {
+    version
+        .split('.')
+        .nth(index)
+        .and_then(|part| part.trim().parse::<u64>().ok())
+        .unwrap_or(0)
+}
+
 #[cfg(target_os = "android")]
 fn latest_build() -> Result<Latest, String> {
     let reply = ureq::get(RELEASE_API)
@@ -171,6 +216,18 @@ fn latest_build() -> Result<Latest, String> {
         .map_err(|e| format!("the release reply is not text: {e}"))?;
     let json: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("the release reply is not JSON: {e}"))?;
+    let version = json
+        .get("body")
+        .and_then(|v| v.as_str())
+        .and_then(|body| body.lines().find(|line| line.starts_with("Version: ")))
+        .map(|line| {
+            line["Version: ".len()..]
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .unwrap_or_default();
     let sha = json
         .get("target_commitish")
         .and_then(|v| v.as_str())
@@ -192,6 +249,7 @@ fn latest_build() -> Result<Latest, String> {
         })
         .ok_or_else(|| format!("{APK_NAME} is not on the release yet"))?;
     Ok(Latest {
+        version,
         sha,
         published,
         url: asset

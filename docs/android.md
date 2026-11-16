@@ -57,11 +57,14 @@ opened (for example *install unknown apps* is off), the tab says where the
 APK copy is instead: `Android/data/io.github.bhimio1.musiccraft/files/
 MusicCraft/update/`, open it with a file manager.
 
-CI stamps every APK with the commit it was built from
-(`MUSICCRAFT_BUILD_SHA`); a build without the stamp (plain `cargo apk build`)
-cannot tell itself from the newest release, so the tab offers the update
-regardless. The `android.permission.INTERNET` permission exists for this
-check alone; nothing else in the app reaches the network.
+Every APK carries the app's semantic version (the workspace version, shown
+in **Settings → Updates**) and the commit it was built from
+(`MUSICCRAFT_BUILD_SHA`). The update check compares versions first: a
+release whose version is older than the installed one is ignored, and the
+same version rebuilt (the rolling release after every push) still offers
+itself, so a plain `cargo apk build` — which has no commit stamp — gets
+offered the release too. The `android.permission.INTERNET` permission exists
+for this check alone; nothing else in the app reaches the network.
 
 ## Logs
 
