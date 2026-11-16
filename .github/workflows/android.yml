@@ -43,10 +43,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
       - name: Install the Android SDK platform and NDK
-        # setup-android provides ANDROID_HOME with the command-line tools;
-        # the NDK and the platform cargo-apk builds against come here.
+        # The hosted runner ships the Android SDK with the command-line tools
+        # (ANDROID_HOME points at it); the NDK and the platform cargo-apk
+        # builds against come here.
         run: |
           yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install \
