@@ -1787,6 +1787,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "musiccraft-android"
+version = "0.4.4"
+dependencies = [
+ "android-activity",
+ "musiccraft-app",
+]
+
+[[package]]
 name = "musiccraft-antiserum"
 version = "0.4.4"
 dependencies = [
@@ -1811,6 +1819,7 @@ dependencies = [
 name = "musiccraft-app"
 version = "0.4.4"
 dependencies = [
+ "android-activity",
  "eframe",
  "midir",
  "musiccraft-audio",

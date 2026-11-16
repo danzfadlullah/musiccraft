@@ -5,6 +5,13 @@ use std::path::PathBuf;
 use musiccraft_ui::Settings;
 
 /// The platform's per-user configuration folder for MusicCraft.
+#[cfg(target_os = "android")]
+fn config_dir() -> Option<PathBuf> {
+    crate::android::data_dir().map(|p| p.join("MusicCraft"))
+}
+
+/// The platform's per-user configuration folder for MusicCraft.
+#[cfg(not(target_os = "android"))]
 fn config_dir() -> Option<PathBuf> {
     let env = |key: &str| {
         std::env::var_os(key)

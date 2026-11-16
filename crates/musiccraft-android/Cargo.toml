@@ -1,0 +1,44 @@
+[package]
+name = "musiccraft-android"
+description = "MusicCraft Android entry point (NativeActivity)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+# The Android entry point must export `android_main` with a fixed name, which
+# edition 2024 spells `#[unsafe(no_mangle)]`. That is the one deliberate
+# exception to the workspace-wide `unsafe_code = "forbid"` (docs/android.md):
+# this crate holds nothing but the entry point, so it does not inherit the
+# workspace lints.
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+android-activity = { version = "0.6", features = ["native-activity"] }
+musiccraft-app.workspace = true
+
+[package.metadata.android]
+# Built with `cargo apk build -p musiccraft-android --release`
+# (docs/android.md); the GitHub Actions workflow android.yml builds the APKs.
+package = "io.github.bhimio1.musiccraft"
+apk_name = "MusicCraft"
+build_targets = ["aarch64-linux-android", "armv7-linux-androideabi"]
+resources = "res"
+
+[package.metadata.android.sdk]
+# Android 10: AMidi (MIDI keyboards) and AAudio (audio output) both link.
+min_sdk_version = 29
+target_sdk_version = 34
+
+[package.metadata.android.application]
+label = "MusicCraft"
+icon = "@mipmap/ic_launcher"
+
+[package.metadata.android.application.activity]
+orientation = "fullSensor"
+launch_mode = "singleTask"
+# Keep the surface and the engine alive across rotations and keyboard slides.
+config_changes = "orientation|screenSize|screenLayout|keyboard|keyboardHidden|density|uiMode"

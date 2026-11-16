@@ -10,6 +10,9 @@
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
+#[cfg(target_os = "android")]
+pub use android::FileDialog;
+#[cfg(not(target_os = "android"))]
 pub use rfd::FileDialog;
 
 /// What a dialog chooses.
@@ -27,6 +30,7 @@ pub enum Mode {
 
 /// Shows `dialog` and waits for it: the chosen paths, or none when it was
 /// cancelled.
+#[cfg(not(target_os = "android"))]
 #[must_use]
 pub fn run(dialog: FileDialog, mode: Mode) -> Vec<PathBuf> {
     match mode {
@@ -35,6 +39,15 @@ pub fn run(dialog: FileDialog, mode: Mode) -> Vec<PathBuf> {
         Mode::Save => dialog.save_file().into_iter().collect(),
         Mode::Folder => dialog.pick_folder().into_iter().collect(),
     }
+}
+
+/// Android has no system file dialog rfd could drive, so every pick answers
+/// "cancelled". Projects move on and off the device through the file manager
+/// instead (`docs/android.md`).
+#[cfg(target_os = "android")]
+#[must_use]
+pub fn run(_dialog: FileDialog, _mode: Mode) -> Vec<PathBuf> {
+    Vec::new()
 }
 
 /// One dialog at a time, with a tag saying what its answer is for.
@@ -106,6 +119,57 @@ impl<T> Picker<T> {
             Err(TryRecvError::Disconnected) => Vec::new(),
         };
         self.open.take().map(|(tag, _)| (tag, paths))
+    }
+}
+
+#[cfg(target_os = "android")]
+mod android {
+    //! A stand-in for rfd's builder, which has no Android backend: every
+    //! option is accepted and remembered, and nothing can be picked.
+
+    use std::path::Path;
+
+    /// Accepts the same builder calls the desktop dialogs do.
+    #[derive(Default, Debug, Clone)]
+    pub struct FileDialog {
+        _title: Option<String>,
+    }
+
+    impl FileDialog {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn add_filter(
+            mut self,
+            name: impl Into<String>,
+            _extensions: &[impl ToString],
+        ) -> Self {
+            self._title = Some(name.into());
+            self
+        }
+
+        pub fn set_directory<P: AsRef<Path>>(self, _path: P) -> Self {
+            self
+        }
+
+        pub fn set_file_name(mut self, file_name: impl Into<String>) -> Self {
+            self._title = Some(file_name.into());
+            self
+        }
+
+        pub fn set_title(mut self, title: impl Into<String>) -> Self {
+            self._title = Some(title.into());
+            self
+        }
+
+        pub fn set_parent<W: ?Sized>(self, _parent: &W) -> Self {
+            self
+        }
+
+        pub fn set_can_create_directories(self, _can: bool) -> Self {
+            self
+        }
     }
 }
 
