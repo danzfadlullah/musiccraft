@@ -2,8 +2,14 @@
 
 A clean-room, pure-Rust digital audio workstation with a pattern-based workflow:
 channel rack, piano roll, playlist and mixer, with familiar default shortcuts.
-Runs on Linux, macOS and Windows. Everything the app can do is a command, so it
-can be driven from the GUI, scripts, the CLI, or an AI agent over MCP.
+Everything the app can do is a command, so it can be driven from the GUI,
+scripts, the CLI, or an AI agent over MCP.
+
+This fork — [danzfadlullah/musiccraft](https://github.com/danzfadlullah/musiccraft),
+forked from [bhimio1/musiccraft](https://github.com/bhimio1/musiccraft) — exists
+to run MusicCraft on **Android** phones and tablets: the same engine and the
+same interface, rebuilt for touch, ARM (arm64-v8a and armeabi-v7a), Android's
+audio stack (AAudio) and Android MIDI (AMidi). The desktop builds are untouched.
 
 ![Playlist arrangement with markers and automation, and the mixer window](docs/screenshots/playlist-mixer.png)
 
@@ -32,12 +38,36 @@ can be driven from the GUI, scripts, the CLI, or an AI agent over MCP.
 
 The screenshots show [`examples/demo-song.mcs`](examples/demo-song.mcs).
 
-## Download
+## Download the Android APK
 
-Grab the latest build from the [Releases page](https://github.com/bhimio1/musiccraft/releases):
+Every build of `main` refreshes the rolling
+**[`android` pre-release](https://github.com/danzfadlullah/musiccraft/releases/tag/android)**
+on the Releases tab — that address always holds the newest APK:
+
+- one APK for both **arm64-v8a** (modern phones) and **armeabi-v7a** (older
+  32-bit phones), **Android 10 or newer**;
+- marked as a pre-release: for testing, not for a store;
+- signed with the project's persistent test key, so a new APK **installs
+  straight over an older one** — no uninstall in between;
+- first install needs *install unknown apps* allowed for your browser or file
+  manager.
+
+Debug APKs (bigger, full logcat) are built on demand: Actions → Android →
+*Run workflow* → profile: `debug`.
+
+Not on Android (yet): CLAP/VST3 plugin hosting, Demucs stem splitting, audio
+input recording, and file dialogs (move files with your file manager instead).
+The rest — channel rack, piano roll, playlist, mixer, built-in instruments and
+effects, export — is the desktop code. Details, log locations for crash
+reports, and build notes: [`docs/android.md`](docs/android.md).
+
+## Desktop
+
+Grab the latest desktop build from the
+[upstream Releases page](https://github.com/bhimio1/musiccraft/releases):
 Windows `.msi` or portable `.zip`, macOS `.dmg`, Linux `.flatpak` or portable
-`.tar.gz`. Builds are not code-signed yet; see `docs/releasing.md` for first-launch
-notes and how releases are made.
+`.tar.gz`. Builds are not code-signed yet; see `docs/releasing.md` for
+first-launch notes and how releases are made. Or build from source (below).
 
 ## Build and run
 
@@ -48,9 +78,17 @@ cargo run --release -p musiccraft-app -- song.mcproj
 
 Linux needs the ALSA development package (`alsa-lib` / `libasound2-dev`).
 
-Android phones and tablets build from the same code: `cargo apk build
--p musiccraft-android --release` (the `android.yml` workflow builds
-`arm64-v8a` and `armeabi-v7a` APKs on every push). See `docs/android.md`.
+Android builds from the same code:
+
+```sh
+rustup target add aarch64-linux-android armv7-linux-androideabi
+cargo install cargo-apk --locked
+cargo apk build -p musiccraft-android --release    # target/release/apk/MusicCraft.apk
+```
+
+The [`android.yml`](.github/workflows/android.yml) workflow builds the APK on
+every push that touches the Android pieces and publishes it as the rolling
+pre-release above. See `docs/android.md` for the SDK/NDK setup and signing.
 
 Options: `--empty` (no starter drum kit), `--keymap <file>`, `--open
 channel_rack,piano_roll,playlist,mixer,browser`.
@@ -70,7 +108,9 @@ channel_rack,piano_roll,playlist,mixer,browser`.
 | Alt+T | Add a playlist marker at the playhead |
 | F10 | Settings (audio device, buffer, MIDI port, scale, folders) |
 
-Hover any control and the hint bar at the top says what it does.
+Hover any control and the hint bar at the top says what it does. On Android,
+egui turns touch into pointer input — taps, drags and long presses work
+wherever the mouse does, and the theme widens the hit targets.
 
 - **Tools**: the playlist and piano roll have draw, paint, delete and select
   tools (pencil, brush, eraser, box) at the top left; the piano roll adds a
@@ -207,7 +247,7 @@ cargo xtask parity          # feature checklist (docs/parity.md)
 
 - `CLAUDE.md` — working rules; `ARCHITECTURE.md` — crates and threading;
   `docs/spec/` — behavior specs; `docs/spec/style/` — interface style guide;
-  `docs/clean-room.md` — provenance rules.
+  `docs/clean-room.md` — provenance rules; `docs/android.md` — the Android port.
 - `MUSICCRAFT_SCREENSHOT=out.png musiccraft …` saves one frame and exits.
 
 MusicCraft is an independent project and is not affiliated with any other DAW.
