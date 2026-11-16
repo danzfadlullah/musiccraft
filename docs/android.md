@@ -46,6 +46,18 @@ cargo apk build -p musiccraft-android --release
 adb install target/aarch64-linux-android/release/apk/MusicCraft.apk
 ```
 
+Release builds sign with the keystore named in
+`[package.metadata.android.signing.release]`. The CI workflow generates a
+gitignored throwaway keystore on the runner, so its artifact APKs install
+right away but must never be published to a store. To make a real release,
+create and keep your own key, and point the metadata at it:
+
+```sh
+keytool -genkeypair -v -keystore musiccraft.keystore -alias musiccraft \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname "CN=MusicCraft, O=MusicCraft"
+```
+
 `cargo apk run` builds, installs and starts the activity in one step.
 
 ## Notes for contributors

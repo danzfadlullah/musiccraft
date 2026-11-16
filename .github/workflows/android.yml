@@ -58,6 +58,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-apk
         run: cargo install cargo-apk --locked
+      - name: Generate the throwaway release keystore
+        # A fresh key per run, only good for test installs; a store release
+        # signs with a real, kept keystore (docs/android.md).
+        run: |
+          keytool -genkeypair -v -keystore crates/musiccraft-android/release.keystore \
+            -alias musiccraft -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass musiccraft-ci -keypass musiccraft-ci \
+            -dname "CN=MusicCraft CI, O=MusicCraft, C=ID"
       - name: Build the APKs
         run: cargo apk build -p musiccraft-android --release
       - name: Collect the APKs
