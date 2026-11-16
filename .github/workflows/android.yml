@@ -34,7 +34,7 @@ on:
           - debug
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -97,3 +97,26 @@ jobs:
           name: MusicCraft-Android-APK
           path: dist/*.apk
           if-no-files-found: error
+      - name: Publish the rolling pre-release
+        # Every build of main refreshes the `android` pre-release on the
+        # Releases tab, so there is one stable download address. Debug
+        # builds and pull requests do not publish.
+        if: >-
+          ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+              (github.event_name == 'workflow_dispatch' && github.event.inputs.profile != 'debug') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Automatic test build of ${GITHUB_SHA}."
+            echo
+            echo "- One APK for arm64-v8a and armeabi-v7a; Android 10 or newer."
+            echo "- Signed with a throwaway CI key: uninstall any earlier build before installing this one."
+            echo "- Pre-release: for testing, not for the store. See docs/android.md."
+          } > dist/notes.md
+          gh release delete android --yes --cleanup-tag || true
+          gh release create android "dist/MusicCraft-android.apk" \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "MusicCraft for Android (auto-build)" \
+            --notes-file dist/notes.md
