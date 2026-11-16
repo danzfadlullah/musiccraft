@@ -23,6 +23,20 @@ splitting (no ONNX Runtime), audio input recording, and the live-control
 server. Everything else — channel rack, piano roll, playlist, mixer, the
 built-in instruments and effects, export — is the desktop code.
 
+## Logs
+
+The app writes `musiccraft.log` (start-up steps, audio, panics) to, in order:
+
+1. `Android/data/io.github.bhimio1.musiccraft/files/MusicCraft/logs/` on
+   shared storage — open it with the phone's file manager (Android 10) or
+   `adb pull` from a computer,
+2. the app's private storage, same `MusicCraft/logs` layout,
+3. `Download/MusicCraft/` — where the system allows it.
+
+When reporting a crash, send that file, or run `adb logcat` while opening the
+app. The Actions tab can also build a debug APK (Run workflow → profile:
+debug): bigger, but `adb logcat` shows everything and a debugger can attach.
+
 ## Build
 
 The GitHub Actions workflow `.github/workflows/android.yml` builds one APK

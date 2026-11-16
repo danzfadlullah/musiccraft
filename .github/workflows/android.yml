@@ -24,6 +24,14 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
   workflow_dispatch:
+    inputs:
+      profile:
+        description: "Build profile: debug APKs are big, but logcat and the log file show everything"
+        type: choice
+        default: release
+        options:
+          - release
+          - debug
 
 permissions:
   contents: read
@@ -66,14 +74,23 @@ jobs:
             -alias musiccraft -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass musiccraft-ci -keypass musiccraft-ci \
             -dname "CN=MusicCraft CI, O=MusicCraft, C=ID"
-      - name: Build the APKs
-        run: cargo apk build -p musiccraft-android --release
+      - name: Build the APK
+        run: |
+          if [ "${{ github.event.inputs.profile }}" = "debug" ]; then
+            cargo apk build -p musiccraft-android
+          else
+            cargo apk build -p musiccraft-android --release
+          fi
       - name: Collect the APK
         # One APK carrying both ARM ABIs (cargo-apk packs every
         # `build_targets` entry into it).
         run: |
           mkdir -p dist
-          cp target/release/apk/MusicCraft.apk dist/MusicCraft-android.apk
+          if [ "${{ github.event.inputs.profile }}" = "debug" ]; then
+            cp target/debug/apk/MusicCraft.apk dist/MusicCraft-android-debug.apk
+          else
+            cp target/release/apk/MusicCraft.apk dist/MusicCraft-android.apk
+          fi
           ls -la dist
       - uses: actions/upload-artifact@v4
         with:
