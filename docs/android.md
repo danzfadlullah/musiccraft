@@ -41,9 +41,36 @@ debug): bigger, but `adb logcat` shows everything and a debugger can attach.
 
 The GitHub Actions workflow `.github/workflows/android.yml` builds one APK
 for both ARM ABIs (`arm64-v8a` and `armeabi-v7a`) on every push that touches
-the Android pieces; grab it from the run's artifacts.
+the Android pieces. Every build of `main` also refreshes the rolling
+[`android` pre-release](https://github.com/danzfadlullah/musiccraft/releases/tag/android)
+on the Releases tab — that address always holds the newest APK, no need to
+open the Actions run for the artifact.
 
-To build locally you need the SDK, the NDK and [cargo-apk](https://github.com/rust-mobile/cargo-apk):
+## Signing
+
+CI signs with the committed test keystore
+`crates/musiccraft-android/release.keystore` (password `musiccraft-ci`).
+Because every run uses the same key, a new APK installs straight over an
+older one — no uninstall in between. The key is for test builds only: it is
+public in the repo, so never ship an APK signed with it to a store or to
+anyone outside the project.
+
+To sign with a kept key instead, add the repo's Actions secrets
+`KEYSTORE_BASE64` (the keystore, base64-encoded) and `KEYSTORE_PASSWORD`;
+the workflow then prefers them over the committed key. For a real, locally
+kept key:
+
+```sh
+keytool -genkeypair -v -keystore musiccraft.keystore -alias musiccraft \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname "CN=MusicCraft, O=MusicCraft"
+```
+
+and point `[package.metadata.android.signing.release]` at it.
+
+## Building locally
+
+You need the SDK, the NDK and [cargo-apk](https://github.com/rust-mobile/cargo-apk):
 
 ```sh
 rustup target add aarch64-linux-android armv7-linux-androideabi
@@ -59,18 +86,6 @@ together). For a device:
 ```sh
 cargo apk build -p musiccraft-android --release
 adb install target/release/apk/MusicCraft.apk
-```
-
-Release builds sign with the keystore named in
-`[package.metadata.android.signing.release]`. The CI workflow generates a
-gitignored throwaway keystore on the runner, so its artifact APKs install
-right away but must never be published to a store. To make a real release,
-create and keep your own key, and point the metadata at it:
-
-```sh
-keytool -genkeypair -v -keystore musiccraft.keystore -alias musiccraft \
-  -keyalg RSA -keysize 2048 -validity 10000 \
-  -dname "CN=MusicCraft, O=MusicCraft"
 ```
 
 `cargo apk run` builds, installs and starts the activity in one step.

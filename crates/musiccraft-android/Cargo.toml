@@ -50,9 +50,10 @@ launch_mode = "singleTask"
 # Keep the surface and the engine alive across rotations and keyboard slides.
 config_changes = "orientation|screenSize|screenLayout|keyboard|keyboardHidden|density|uiMode"
 
-# The CI workflow generates this throwaway keystore on the runner (it is
-# gitignored), so the artifact APKs install without Play signing. For a real
-# release, point these at your own keystore (docs/android.md).
+# The committed test keystore (see docs/android.md): every CI run signs with
+# the same key, so new APKs install over old ones. It is for test builds
+# only, never for a store release — point these at your own kept keystore
+# instead (docs/android.md).
 [package.metadata.android.signing.release]
 path = "release.keystore"
 keystore_password = "musiccraft-ci"

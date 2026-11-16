@@ -4,4 +4,7 @@
 .DS_Store
 
 # The CI-generated throwaway signing key (docs/android.md)
-crates/musiccraft-android/release.keystore
+# the signing keystore is committed on purpose (test-only key, see
+# docs/android.md); local real keys stay untracked:
+crates/musiccraft-android/*.keystore
+!crates/musiccraft-android/release.keystore
