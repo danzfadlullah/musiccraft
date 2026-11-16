@@ -297,6 +297,7 @@ impl App {
             None => Keymap::default_keymap(),
         };
         let settings = settings::load();
+        log("App::new: settings loaded");
         let scan_plugins = settings.scan_plugins_on_start;
         // Sample paths from Windows projects translate with these folders.
         musiccraft_paths::configure(settings.path_config());
@@ -418,6 +419,7 @@ impl App {
         app.start_control(options, ctx);
         app.refresh_devices();
         app.start_audio(ctx);
+        log("App::new: done");
         app
     }
 
@@ -469,6 +471,7 @@ impl App {
         });
         match opened {
             Ok((output, handle, (live, midi_out), label, rates, rate, note)) => {
+                log(&format!("start_audio: opened {label}"));
                 self.audio_label = label;
                 self.settings_info.sample_rates = rates;
                 self.settings_info.running_rate = rate;
@@ -487,6 +490,7 @@ impl App {
                 self.send(EngineMessage::SetMidiClock(self.settings.midi_clock));
             }
             Err(err) => {
+                log(&format!("start_audio: {err}"));
                 self.audio_label = format!("no audio: {err}");
                 self.settings_info.audio_note = Some(err.to_string());
                 self.midi_label = String::new();
@@ -1719,7 +1723,29 @@ pub fn run_desktop() -> eframe::Result {
 #[cfg(target_os = "android")]
 pub fn run_android(app: android_activity::AndroidApp) -> eframe::Result {
     android::set_app(app);
-    run_native(Options::default())
+    android::init_logging();
+    log("run_android: handing the activity to eframe");
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_native(Options::default())
+    }));
+    match result {
+        Ok(result) => {
+            log("run_android: eframe returned");
+            result
+        }
+        Err(panic) => {
+            log(&format!("run_android: eframe panicked: {panic:?}"));
+            std::panic::resume_unwind(panic)
+        }
+    }
+}
+
+/// A line in the Android log file (`android.rs`); nothing on the desktop.
+pub(crate) fn log(message: &str) {
+    #[cfg(target_os = "android")]
+    android::log(message);
+    #[cfg(not(target_os = "android"))]
+    let _ = message;
 }
 
 fn run_native(options: Options) -> eframe::Result {
@@ -1732,12 +1758,17 @@ fn run_native(options: Options) -> eframe::Result {
             // (the Flatpak and the installed .desktop file use the same ID).
             .with_app_id("io.github.bhimio1.MusicCraft")
             .with_icon(window_icon()),
+        // eframe builds the event loop around the activity on Android; without
+        // it, start-up fails right away.
+        #[cfg(target_os = "android")]
+        android_app: crate::android::app_handle(),
         ..Default::default()
     };
     eframe::run_native(
         "MusicCraft",
         native,
         Box::new(move |creation| {
+            log("eframe: creating the app");
             musiccraft_ui::apply_theme(&creation.egui_ctx);
             apply_touch_style(&creation.egui_ctx);
             Ok(Box::new(App::new(&options, &creation.egui_ctx)))
