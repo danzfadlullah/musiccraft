@@ -25,9 +25,9 @@ built-in instruments and effects, export — is the desktop code.
 
 ## Build
 
-The GitHub Actions workflow `.github/workflows/android.yml` builds both ARM
-APKs (`arm64-v8a`, `armeabi-v7a`) on every push that touches the Android
-pieces; grab them from the run's artifacts.
+The GitHub Actions workflow `.github/workflows/android.yml` builds one APK
+for both ARM ABIs (`arm64-v8a` and `armeabi-v7a`) on every push that touches
+the Android pieces; grab it from the run's artifacts.
 
 To build locally you need the SDK, the NDK and [cargo-apk](https://github.com/rust-mobile/cargo-apk):
 
@@ -39,11 +39,12 @@ export NDK_HOME="$ANDROID_HOME"/ndk/27.2.12479018
 cargo apk build -p musiccraft-android --release
 ```
 
-The APKs land in `target/<triple>/release/apk/MusicCraft.apk`. For a device:
+The APK lands in `target/release/apk/MusicCraft.apk` (both ARM ABIs packed
+together). For a device:
 
 ```sh
 cargo apk build -p musiccraft-android --release
-adb install target/aarch64-linux-android/release/apk/MusicCraft.apk
+adb install target/release/apk/MusicCraft.apk
 ```
 
 Release builds sign with the keystore named in
