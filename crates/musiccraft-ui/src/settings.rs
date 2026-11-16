@@ -67,6 +67,8 @@ pub struct Settings {
     /// A click on another channel's name opens a window of its own instead
     /// of switching the open channel window.
     pub keep_instrument_windows: bool,
+    /// Write the activity log file (Android).
+    pub logging: bool,
     /// The window arrangement when the app last closed, restored on start.
     pub window_layout: Option<WindowLayout>,
 }
@@ -107,6 +109,7 @@ impl Default for Settings {
             fl_user: None,
             drive_map: Vec::new(),
             keep_instrument_windows: false,
+            logging: true,
             window_layout: None,
         }
     }
@@ -169,6 +172,8 @@ pub struct SettingsInfo {
     pub plugin_errors: Vec<String>,
     /// The in-app update check (Android; the default elsewhere).
     pub updates: UpdateInfo,
+    /// Whether the activity log file is being written (Android).
+    pub logging: bool,
 }
 
 /// What the app reports about its own updates (Android). Read-only.
@@ -192,10 +197,12 @@ pub enum UpdateStatus {
     Checking,
     /// The installed build is the newest one.
     UpToDate,
-    /// A newer build is published: its version, its short commit, its
-    /// publish date and the APK size in bytes.
+    /// A newer build is published: its version, its changelog (the commit
+    /// subjects since the previous release), its short commit, its publish
+    /// date and the APK size in bytes.
     Available {
         version: String,
+        changes: Vec<String>,
         build: String,
         published: String,
         size: u64,
@@ -632,6 +639,10 @@ fn general(ui: &mut egui::Ui, state: &mut UiState, frame: &Frame<'_>, actions: &
         settings.keep_instrument_windows,
         |s, v| s.keep_instrument_windows = v,
     );
+    #[cfg(target_os = "android")]
+    toggle(ui, "Write the log file", settings.logging, |s, v| {
+        s.logging = v
+    });
 }
 
 fn folder_list(ui: &mut egui::Ui, folders: &[PathBuf]) -> Option<usize> {
@@ -952,6 +963,7 @@ fn updates(ui: &mut egui::Ui, info: &UpdateInfo, actions: &mut Vec<Action>) {
             }
             UpdateStatus::Available {
                 version,
+                changes,
                 build,
                 published,
                 size,
@@ -965,6 +977,7 @@ fn updates(ui: &mut egui::Ui, info: &UpdateInfo, actions: &mut Vec<Action>) {
                     "Update available: {what} ({published}, {:.1} MB)",
                     *size as f64 / 1e6
                 ));
+                changelog(ui, changes);
                 ui.add_space(4.0);
                 if ui.button("Download and install").clicked() {
                     actions.push(Action::InstallUpdate);
@@ -998,4 +1011,75 @@ fn updates(ui: &mut egui::Ui, info: &UpdateInfo, actions: &mut Vec<Action>) {
             }
         }
     }
+}
+
+/// The update pop-up: when a newer build is published, a small window offers
+/// it wherever the user is, not only inside Settings. "Later" keeps it quiet
+/// until yet another build appears.
+pub fn update_popup(
+    state: &mut UiState,
+    ctx: &egui::Context,
+    info: &UpdateInfo,
+    actions: &mut Vec<Action>,
+) {
+    let UpdateStatus::Available {
+        version,
+        changes,
+        build,
+        published,
+        size,
+    } = &info.status
+    else {
+        return;
+    };
+    if state.update_dismissed.as_deref() == Some(build) {
+        return;
+    }
+    let what = if version.is_empty() {
+        format!("build {build}")
+    } else {
+        format!("version {version} (build {build})")
+    };
+    egui::Window::new("Update available")
+        .id(egui::Id::new("update-popup"))
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.label(format!(
+                "A newer build is published: {what} ({published}, {:.1} MB).",
+                *size as f64 / 1e6
+            ));
+            changelog(ui, changes);
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Download and install").clicked() {
+                    actions.push(Action::InstallUpdate);
+                }
+                if ui.button("Later").clicked() {
+                    state.update_dismissed = Some(build.clone());
+                }
+            });
+            ui.add_space(4.0);
+            ui.label(
+                "Android opens its installer to confirm; the new build \
+                 replaces this one in place.",
+            );
+        });
+}
+
+/// Draws a release's changelog, if the notes carried one.
+fn changelog(ui: &mut egui::Ui, changes: &[String]) {
+    if changes.is_empty() {
+        return;
+    }
+    ui.add_space(4.0);
+    ui.label(RichText::new("What changed:").strong());
+    egui::ScrollArea::vertical()
+        .max_height(120.0)
+        .show(ui, |ui| {
+            for change in changes {
+                ui.label(RichText::new(format!("\u{2022} {change}")).small());
+            }
+        });
 }

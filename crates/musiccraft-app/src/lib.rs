@@ -301,6 +301,8 @@ impl App {
         };
         let settings = settings::load();
         log("App::new: settings loaded");
+        #[cfg(target_os = "android")]
+        android::set_logging(settings.logging);
         let scan_plugins = settings.scan_plugins_on_start;
         // Sample paths from Windows projects translate with these folders.
         musiccraft_paths::configure(settings.path_config());
@@ -530,10 +532,14 @@ impl App {
             port,
         ) {
             Ok(midi) => {
+                log(&format!("MIDI: connected {}", midi.name));
                 self.midi_label = format!("MIDI: {}", midi.name);
                 self.midi = Some(midi);
             }
-            Err(err) => self.midi_label = format!("MIDI: {err}"),
+            Err(err) => {
+                log(&format!("MIDI: connect failed: {err}"));
+                self.midi_label = format!("MIDI: {err}");
+            }
         }
     }
 
@@ -560,6 +566,11 @@ impl App {
     /// Applies new settings, saving them and restarting what changed.
     fn apply_settings(&mut self, ctx: &egui::Context, next: musiccraft_ui::Settings) {
         let previous = std::mem::replace(&mut self.settings, next);
+        #[cfg(target_os = "android")]
+        if previous.logging != self.settings.logging {
+            android::set_logging(self.settings.logging);
+            log(&format!("logging turned {}", on_off(self.settings.logging)));
+        }
         if let Err(err) = settings::save(&self.settings) {
             self.ui
                 .set_status(format!("cannot save settings: {err}"), true);
@@ -661,7 +672,16 @@ impl App {
                     return;
                 }
                 let invocation = self.automated(invocation);
-                self.run_invocation(&invocation)
+                let result = self.run_invocation(&invocation);
+                log(&format!(
+                    "command {}: {}",
+                    invocation.name,
+                    match &result {
+                        Ok(_) => "ok".to_owned(),
+                        Err(err) => format!("failed: {err:?}"),
+                    }
+                ));
+                result
             }
             Action::Coalesced(invocation, key) => {
                 let invocation = self.automated(invocation);
@@ -890,6 +910,7 @@ impl App {
     fn poll_updates(&mut self) {
         self.updater.poll();
         self.settings_info.updates = self.updater.info();
+        self.settings_info.logging = self.settings.logging;
     }
 
     /// Shows a running split's progress, and adds the stems once it is done.
@@ -1539,6 +1560,7 @@ impl App {
     /// leads to.
     fn file_dialogs(&mut self, ctx: &egui::Context, window: &eframe::Frame) {
         if let Some(pick) = self.ui.take_file_pick() {
+            log(&format!("file dialog: opening for {pick:?}"));
             let (dialog, mode) = file_dialogs::dialog(&pick, window);
             let repaint = ctx.clone();
             if !self
@@ -1549,6 +1571,10 @@ impl App {
             }
         }
         if let Some((pick, paths)) = self.files.poll() {
+            log(&format!(
+                "file dialog: answered with {} file(s) for {pick:?}",
+                paths.len()
+            ));
             // Draw again once the dialog has gone: without a compositor the
             // window under it is only uncovered after the answer arrives.
             ctx.request_repaint_after(Duration::from_millis(250));
@@ -1632,6 +1658,12 @@ impl eframe::App for App {
             musiccraft_ui::show(ui, &mut self.ui, &frame)
         };
         for action in actions {
+            self.apply(&ctx, action);
+        }
+        // The update pop-up shows wherever the user is, not only in Settings.
+        let mut popup = Vec::new();
+        musiccraft_ui::update_popup(&mut self.ui, &ctx, &self.settings_info.updates, &mut popup);
+        for action in popup {
             self.apply(&ctx, action);
         }
         self.file_dialogs(&ctx, window);
@@ -1787,6 +1819,12 @@ pub(crate) fn log(message: &str) {
     android::log(message);
     #[cfg(not(target_os = "android"))]
     let _ = message;
+}
+
+/// `on`/`off`, for log lines about switches.
+#[cfg(target_os = "android")]
+fn on_off(enabled: bool) -> &'static str {
+    if enabled { "on" } else { "off" }
 }
 
 fn run_native(options: Options) -> eframe::Result {

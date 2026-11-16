@@ -50,6 +50,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        # Full history, so the release notes can list the commits since the
+        # previous release.
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -167,8 +171,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # The app's own update check reads this line from the release
-          # notes to compare semantic versions.
+          # notes to compare semantic versions, and the Changes section is
+          # the changelog its update pop-up shows.
           VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2)
+          PREV=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/android" \
+            --jq .target_commitish 2>/dev/null || true)
+          RANGE="-20"
+          if [ -n "$PREV" ] && git cat-file -e "$PREV" 2>/dev/null; then
+            RANGE="$PREV..$GITHUB_SHA"
+          fi
           {
             echo "Version: ${VERSION} (commit ${GITHUB_SHA:0:7})"
             echo
@@ -181,6 +192,10 @@ jobs:
               echo "- Signed with the persistent CI key: installs over any earlier build, no uninstall needed."
             fi
             echo "- Pre-release: for testing, not for the store. See docs/android.md."
+            echo
+            echo "Changes:"
+            git log --no-decorate --format='- %s' --max-count=20 "$RANGE" \
+              || echo "- (the commit list could not be made)"
           } > dist/notes.md
           gh release delete android --yes --cleanup-tag || true
           gh release create android "dist/MusicCraft-android.apk" \

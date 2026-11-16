@@ -44,7 +44,7 @@ pub use dialogs::{FilePick, Pick, PickMode};
 pub use geometry::Snap;
 pub use keymap::{Chord, DEFAULT_KEYMAP, Keymap};
 pub use plugins::{LivePluginView, PluginEntry, PluginParamView, Plugins};
-pub use settings::{MidiInput, Settings, SettingsInfo, UpdateInfo, UpdateStatus};
+pub use settings::{MidiInput, Settings, SettingsInfo, UpdateInfo, UpdateStatus, update_popup};
 pub use theme::apply as apply_theme;
 
 /// Something the user asked for, produced by one frame of UI.
@@ -665,6 +665,9 @@ pub struct UiState {
     dialog: Option<dialogs::Dialog>,
     /// A system file dialog for the app to show.
     file_pick: Option<dialogs::FilePick>,
+    /// The update pop-up's "Later": the build the user deferred, so a
+    /// different build opens the pop-up again.
+    pub(crate) update_dismissed: Option<String>,
     /// A name being renamed where it is drawn.
     renaming: Option<dialogs::InPlace>,
     antiserum: antiserum::AntiserumUi,
@@ -766,6 +769,7 @@ impl UiState {
             playlist: playlist::PlaylistState::default(),
             dialog: None,
             file_pick: None,
+            update_dismissed: None,
             antiserum: antiserum::AntiserumUi::default(),
         }
     }

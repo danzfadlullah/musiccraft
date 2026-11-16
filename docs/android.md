@@ -49,7 +49,9 @@ lands where the user chose.
 
 The app checks its own updates against this fork's rolling `android`
 pre-release: once at start-up and again from **Settings → Updates**. When a
-newer build is published there, the tab offers **Download and install**: the
+newer build is published there, a pop-up offers it wherever you are — with
+the changelog (the commits since the previous release, which CI writes into
+the release notes) — and the tab offers **Download and install**: the
 APK streams down with a progress bar, lands in `Download/MusicCraft/` through
 MediaStore, and Android's installer opens to confirm the swap. The new build
 installs in place — same signature, no uninstall. If the installer cannot be
@@ -68,13 +70,19 @@ for this check alone; nothing else in the app reaches the network.
 
 ## Logs
 
-The app writes `musiccraft.log` (start-up steps, audio, panics) to, in order:
+The app writes `musiccraft.log` — what it does as it does it: start-up,
+every command the interface runs, file picks and their answers, audio and
+MIDI (re)starts, the update check, download and install, and panics — to,
+in order:
 
 1. `Android/data/io.github.bhimio1.musiccraft/files/MusicCraft/logs/` on
    shared storage — open it with the phone's file manager (Android 10) or
    `adb pull` from a computer,
 2. the app's private storage, same `MusicCraft/logs` layout,
 3. `Download/MusicCraft/` — where the system allows it.
+
+Writing the log can be switched off in **Settings → General** ("Write the
+log file"); panics are logged either way.
 
 When reporting a crash, send that file, or run `adb logcat` while opening the
 app. The Actions tab can also build a debug APK (Run workflow → profile:

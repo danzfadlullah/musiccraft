@@ -53,11 +53,11 @@ on the Releases tab — that address always holds the newest APK:
 
 The app checks for updates by itself (once at start-up, and any time from
 **Settings → Updates**, which also shows the installed version). When a
-newer build is on the Releases tab, one tap —
-**Download and install** — streams the APK down with a progress bar and opens
-Android's installer to confirm the swap. No browser, no manual download; if
-the installer cannot open, the tab says where the APK copy is. See
-[`docs/android.md`](docs/android.md).
+newer build is on the Releases tab, a pop-up offers it — with the
+changelog — and one tap, **Download and install**, streams the APK down
+with a progress bar and opens Android's installer to confirm the swap. No
+browser, no manual download; if the installer cannot open, the tab says
+where the APK copy is. See [`docs/android.md`](docs/android.md).
 
 ## What works on Android
 

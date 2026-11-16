@@ -38,6 +38,9 @@ struct Latest {
     /// The release's semantic version, from its notes' `Version:` line;
     /// empty when the notes predate stamping.
     version: String,
+    /// The release notes' changelog: the commit subjects since the previous
+    /// release, from the notes' `Changes:` section.
+    changes: Vec<String>,
     sha: String,
     published: String,
     url: String,
@@ -98,6 +101,7 @@ impl Updater {
                         } else {
                             UpdateStatus::Available {
                                 version: latest.version,
+                                changes: latest.changes,
                                 build: short(&latest.sha),
                                 published: latest.published,
                                 size: latest.size,
@@ -216,10 +220,13 @@ fn latest_build() -> Result<Latest, String> {
         .map_err(|e| format!("the release reply is not text: {e}"))?;
     let json: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("the release reply is not JSON: {e}"))?;
-    let version = json
+    let body = json
         .get("body")
         .and_then(|v| v.as_str())
-        .and_then(|body| body.lines().find(|line| line.starts_with("Version: ")))
+        .unwrap_or_default();
+    let version = body
+        .lines()
+        .find(|line| line.starts_with("Version: "))
         .map(|line| {
             line["Version: ".len()..]
                 .split_whitespace()
@@ -228,6 +235,15 @@ fn latest_build() -> Result<Latest, String> {
                 .to_owned()
         })
         .unwrap_or_default();
+    // The changelog is the notes' last section: every bullet after the
+    // `Changes:` heading.
+    let changes = body
+        .lines()
+        .skip_while(|line| *line != "Changes:")
+        .skip(1)
+        .filter_map(|line| line.strip_prefix("- "))
+        .map(str::to_owned)
+        .collect();
     let sha = json
         .get("target_commitish")
         .and_then(|v| v.as_str())
@@ -250,6 +266,7 @@ fn latest_build() -> Result<Latest, String> {
         .ok_or_else(|| format!("{APK_NAME} is not on the release yet"))?;
     Ok(Latest {
         version,
+        changes,
         sha,
         published,
         url: asset
@@ -276,9 +293,11 @@ fn download_latest(status: &Mutex<UpdateStatus>, ctx: &egui::Context) -> Result<
         .filter(|&n| n > 0)
         .unwrap_or(latest.size)
         .max(1);
+    crate::log(&format!("update: downloading {} bytes", total));
     let mut reader = reply.into_reader();
     let mut bytes = Vec::with_capacity(total as usize);
     let mut chunk = [0u8; 64 * 1024];
+    let mut quarter = 0u8;
     loop {
         let read = reader
             .read(&mut chunk)
@@ -290,6 +309,12 @@ fn download_latest(status: &Mutex<UpdateStatus>, ctx: &egui::Context) -> Result<
         *status.lock().unwrap() = UpdateStatus::Downloading {
             progress: (bytes.len() as f32 / total as f32).min(1.0),
         };
+        // A milestone line per quarter, so the log shows life without spam.
+        let reached = (bytes.len() as f32 / total as f32 * 4.0).min(4.0) as u8;
+        if reached > quarter {
+            quarter = reached;
+            crate::log(&format!("update: downloaded {}%", reached * 25));
+        }
         ctx.request_repaint();
     }
     Ok(bytes)

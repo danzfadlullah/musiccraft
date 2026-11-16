@@ -22,7 +22,7 @@ use crate::{app, checked, take, take_bool, take_int, with_env};
 
 /// Which panel the picker opens (`musiccraft-file-dialog`'s Mode; folders
 /// have no cache-file meaning and never reach here).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum SafMode {
     /// One existing file.
     File,
@@ -37,8 +37,7 @@ pub struct SafRequest {
     pub mode: SafMode,
 }
 
-/// The activity class that receives the answer.
-const ACTIVITY: &str = "io/github/bhimio1/musiccraft/MusicCraftActivity";
+/// The static field on the activity class that carries the answer.
 const RESULT_FIELD: &str = "pickResult";
 const PICK_REQUEST: i32 = 42;
 /// The cache folder picks materialise into, under the app's private storage.
@@ -56,6 +55,7 @@ static REGISTRY: Mutex<Vec<(String, PathBuf, u64)>> = Mutex::new(Vec::new());
 /// into the app's cache, or none when it was cancelled. Runs on the
 /// file-dialog thread, which is built for waiting.
 pub fn pick(request: SafRequest) -> Vec<PathBuf> {
+    crate::log(&format!("SAF: opening the picker ({:?})", request.mode));
     clear_result();
     let mode = request.mode.clone();
     if let Err(err) = launch_on_main_thread(request) {
@@ -63,19 +63,34 @@ pub fn pick(request: SafRequest) -> Vec<PathBuf> {
         return Vec::new();
     }
     let deadline = Instant::now() + DEADLINE;
+    let mut broken = 0u32;
     loop {
         thread::sleep(Duration::from_millis(150));
-        if let Some(answer) = poll_result() {
-            return match answer {
-                Ok(uris) => uris
-                    .iter()
-                    .filter_map(|uri| materialize(uri, &mode))
-                    .collect(),
-                Err(err) => {
-                    crate::log(&format!("SAF: {err}"));
-                    Vec::new()
+        match poll_result() {
+            Ok(Some(answer)) => {
+                return match answer {
+                    Ok(uris) => {
+                        crate::log(&format!("SAF: picked {} URI(s)", uris.len()));
+                        uris.iter()
+                            .filter_map(|uri| materialize(uri, &mode))
+                            .collect()
+                    }
+                    Err(err) => {
+                        crate::log(&format!("SAF: {err}"));
+                        Vec::new()
+                    }
+                };
+            }
+            // A read that keeps failing will not fix itself: give up, so the
+            // picker stays reachable instead of hanging to the deadline.
+            Ok(None) => broken = 0,
+            Err(err) => {
+                broken += 1;
+                crate::log(&format!("SAF: {err}"));
+                if broken >= 4 {
+                    return Vec::new();
                 }
-            };
+            }
         }
         if Instant::now() > deadline {
             crate::log("SAF: the picker did not answer within ten minutes");
@@ -104,6 +119,7 @@ pub fn sync() {
             kept.push((uri, path, pushed));
             continue;
         };
+        crate::log(&format!("SAF: saving {} bytes to {uri}", bytes.len()));
         match with_env(|env, activity| write_uri(env, activity, &uri, &bytes)) {
             Ok(()) => kept.push((uri, path, len)),
             Err(err) => {
@@ -116,10 +132,11 @@ pub fn sync() {
 }
 
 fn clear_result() {
-    let cleared = with_env(|env, _activity| {
-        let lookup = env.get_static_field_id(ACTIVITY, RESULT_FIELD, "Ljava/lang/String;");
+    let cleared = with_env(|env, activity| {
+        let class = checked(env, env.get_object_class(activity))?;
+        let lookup = env.get_static_field_id(&class, RESULT_FIELD, "Ljava/lang/String;");
         let field = checked(env, lookup)?;
-        let set = env.set_static_field(ACTIVITY, field, JValue::Object(&JObject::null()));
+        let set = env.set_static_field(&class, field, JValue::Object(&JObject::null()));
         checked(env, set)
     });
     if let Err(err) = cleared {
@@ -223,10 +240,15 @@ fn launch(env: &mut JNIEnv, activity: &JObject, request: &SafRequest) -> Result<
 }
 
 /// The answer in the activity's static field, if it has landed: the picked
-/// URIs, or why there are none.
-fn poll_result() -> Option<Result<Vec<String>, String>> {
-    let raw = with_env(|env, _activity| {
-        let get = env.get_static_field(ACTIVITY, RESULT_FIELD, "Ljava/lang/String;");
+/// URIs, or why there are none. `Err` means the field could not be read at
+/// all (a broken JNI session), which the caller treats as a dead pick.
+fn poll_result() -> Result<Option<Result<Vec<String>, String>>, String> {
+    let raw = with_env(|env, activity| {
+        // The activity's own class object, not a name lookup: FindClass on a
+        // plain native thread uses the system class loader, which cannot see
+        // the app's classes, and the pick would never be read.
+        let class = checked(env, env.get_object_class(activity))?;
+        let get = env.get_static_field(&class, RESULT_FIELD, "Ljava/lang/String;");
         let field = take(env, get)?;
         if field.as_raw().is_null() {
             return Ok(None);
@@ -235,9 +257,8 @@ fn poll_result() -> Option<Result<Vec<String>, String>> {
         let got = env.get_string(&jstring);
         let text = checked(env, got)?;
         Ok(Some(text.to_string_lossy().into_owned()))
-    })
-    .ok()??;
-    Some(parse_result(&raw))
+    })?;
+    Ok(raw.map(|raw| parse_result(&raw)))
 }
 
 fn parse_result(raw: &str) -> Result<Vec<String>, String> {
@@ -251,11 +272,12 @@ fn parse_result(raw: &str) -> Result<Vec<String>, String> {
 }
 
 fn set_result_string(value: &str) -> Result<(), String> {
-    with_env(|env, _activity| {
+    with_env(|env, activity| {
         let text = checked(env, env.new_string(value))?;
-        let lookup = env.get_static_field_id(ACTIVITY, RESULT_FIELD, "Ljava/lang/String;");
+        let class = checked(env, env.get_object_class(activity))?;
+        let lookup = env.get_static_field_id(&class, RESULT_FIELD, "Ljava/lang/String;");
         let field = checked(env, lookup)?;
-        let set = env.set_static_field(ACTIVITY, field, JValue::Object(&text));
+        let set = env.set_static_field(&class, field, JValue::Object(&text));
         checked(env, set)
     })
 }
@@ -279,16 +301,29 @@ fn materialize(uri: &str, mode: &SafMode) -> Option<PathBuf> {
     let path = dir.join(name);
     if let SafMode::Save { .. } = mode {
         if std::fs::write(&path, b"").is_err() {
+            crate::log("SAF: the cache file could not be created");
             return None;
         }
         if let Ok(mut registry) = REGISTRY.lock() {
             registry.push((uri.to_owned(), path.clone(), 0));
         }
     } else {
-        let bytes = with_env(|env, activity| read_uri(env, activity, uri)).ok()?;
+        let bytes = match with_env(|env, activity| read_uri(env, activity, uri)) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                crate::log(&format!("SAF: {uri} could not be read: {err}"));
+                return None;
+            }
+        };
         if std::fs::write(&path, &bytes).is_err() {
+            crate::log("SAF: the picked file could not be copied into the cache");
             return None;
         }
+        crate::log(&format!(
+            "SAF: copied {} bytes to {}",
+            bytes.len(),
+            path.display()
+        ));
     }
     Some(path)
 }
