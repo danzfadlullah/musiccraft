@@ -55,9 +55,12 @@ The app checks for updates by itself (once at start-up, and any time from
 **Settings → Updates**, which also shows the installed version). When a
 newer build is on the Releases tab, a pop-up offers it — with the
 changelog — and one tap, **Download and install**, streams the APK down
-with a progress bar and opens Android's installer to confirm the swap. No
-browser, no manual download; if the installer cannot open, the tab says
-where the APK copy is. See [`docs/android.md`](docs/android.md).
+with a progress bar, checks its SHA-256 fingerprint against the release,
+and opens Android's installer to confirm the swap. No
+browser, no manual download; once the update has installed, the spent APK
+is swept away (a switch in **Settings → General** keeps it instead). If the
+installer cannot open, the tab says where the APK copy is. See
+[`docs/android.md`](docs/android.md).
 
 ## What works on Android
 
@@ -72,13 +75,14 @@ where the APK copy is. See [`docs/android.md`](docs/android.md).
   the browser.
 - **Audio and MIDI**: output through AAudio, MIDI keyboards in and gear out
   through AMidi (USB and Bluetooth).
-- **Projects and export**: open and save `.mcproj`, export WAV (16/24/32f)
-  and FLAC (16/24), one stem per mixer insert.
+- **Projects and export**: open and save `.mcproj`, import MIDI files into
+  the selected channel (**File → Import MIDI file…**, like FL Studio),
+  export WAV (16/24/32f) and FLAC (16/24), one stem per mixer insert.
 
 Not on Android (yet): CLAP/VST3 plugin hosting, Demucs stem splitting, audio
-input recording, folder picks in the file panels, and file-type filters in
-the SAF panels. Opening and saving projects works through the system's file
-picker instead.
+input recording, and folder picks in the file panels. Opening and saving
+projects works through the system's file picker instead, filtered to the
+kinds of file each dialog asks for.
 
 ## Build from source
 

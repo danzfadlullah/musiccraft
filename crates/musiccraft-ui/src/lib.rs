@@ -1276,6 +1276,10 @@ fn resolve_ui_actions(state: &mut UiState, frame: &Frame<'_>, actions: Vec<Actio
             "ui.export" => state.pick_file(dialogs::FilePick::export(frame.project)),
             "ui.export_stems" => state.pick_file(dialogs::FilePick::export_stems(frame.project)),
             "ui.export_midi" => state.pick_file(dialogs::FilePick::export_midi(frame.project)),
+            "ui.import_midi" => state.pick_file(dialogs::FilePick::import_midi(
+                frame.project,
+                state.selected_channel,
+            )),
             "ui.quit" => out.push(Action::Quit),
             "ui.typing_keyboard" => state.typing_keyboard = !state.typing_keyboard,
             "ui.copy_control" => {

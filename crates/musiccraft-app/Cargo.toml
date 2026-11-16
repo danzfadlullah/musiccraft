@@ -33,6 +33,7 @@ android-activity = { version = "0.6", features = ["native-activity"] }
 eframe = { workspace = true, features = ["android-native-activity"] }
 musiccraft-android-java.workspace = true
 ureq.workspace = true
+ring.workspace = true
 
 [lints]
 workspace = true

@@ -88,6 +88,7 @@ fn file_menu(ui: &mut egui::Ui, state: &mut UiState, actions: &mut Vec<Action>) 
     menu_item(ui, state, "Export audio (WAV, FLAC)…", "ui.export", actions);
     menu_item(ui, state, "Export stems…", "ui.export_stems", actions);
     menu_item(ui, state, "Export MIDI…", "ui.export_midi", actions);
+    menu_item(ui, state, "Import MIDI file…", "ui.import_midi", actions);
     if let Some(path) = state.autosave_path.clone() {
         if ui
             .button("Recover unsaved work")

@@ -17,6 +17,11 @@ const RELEASE_API: &str =
     "https://api.github.com/repos/danzfadlullah/musiccraft/releases/tags/android";
 #[cfg(target_os = "android")]
 const APK_NAME: &str = "MusicCraft-android.apk";
+/// The update APKs' name prefix in storage, completed with the version
+/// (`MusicCraft-update-0.6.0.apk`), so the cleanup knows which files are
+/// spent (`install.rs` uses the same naming for its Downloads copy).
+#[cfg(target_os = "android")]
+const APK_PREFIX: &str = "MusicCraft-update-";
 #[cfg(target_os = "android")]
 const USER_AGENT: &str = "MusicCraft-Android";
 
@@ -45,13 +50,19 @@ struct Latest {
     published: String,
     url: String,
     size: u64,
+    /// The release asset's SHA-256 fingerprint (`sha256:…`), which the
+    /// download must match before it may install; empty when GitHub does
+    /// not report one.
+    digest: String,
 }
+
+/// A finished download and the version it is, waiting for the UI thread (the
+/// activity's Java thread) to hand it to the installer — JNI belongs there.
+type ReadyDownload = Arc<Mutex<Option<(Vec<u8>, String)>>>;
 
 pub struct Updater {
     status: Arc<Mutex<UpdateStatus>>,
-    /// A finished download, waiting for the UI thread (the activity's Java
-    /// thread) to hand it to the installer — JNI belongs there.
-    ready: Arc<Mutex<Option<Vec<u8>>>>,
+    ready: ReadyDownload,
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     ctx: egui::Context,
 }
@@ -128,10 +139,10 @@ impl Updater {
             let ctx = self.ctx.clone();
             thread::spawn(move || {
                 match download_latest(&status, &ctx) {
-                    Ok(bytes) => {
-                        let note = save_fallback(&bytes);
+                    Ok((bytes, version)) => {
+                        let note = save_fallback(&bytes, &version);
                         crate::log(&format!("update downloaded: {} bytes; {note}", bytes.len()));
-                        *ready.lock().unwrap() = Some(bytes);
+                        *ready.lock().unwrap() = Some((bytes, version));
                         *status.lock().unwrap() = UpdateStatus::Installing;
                     }
                     Err(err) => {
@@ -148,9 +159,16 @@ impl Updater {
     /// system installer and keeps the settings window's info current.
     pub fn poll(&mut self) {
         #[cfg(target_os = "android")]
-        if let Some(bytes) = self.ready.lock().unwrap().take() {
-            let installer = crate::android::app_handle()
-                .and_then(|app| musiccraft_android_java::install_apk(&app, &bytes).ok());
+        if let Some((bytes, version)) = self.ready.lock().unwrap().take() {
+            let installer = crate::android::app_handle().and_then(|app| {
+                match musiccraft_android_java::install_apk(&app, &bytes, &version) {
+                    Ok(()) => Some(()),
+                    Err(err) => {
+                        crate::log(&format!("update: the installer did not open: {err}"));
+                        None
+                    }
+                }
+            });
             let note = match installer {
                 Some(()) => {
                     crate::log("update: the system installer is open");
@@ -158,7 +176,7 @@ impl Updater {
                 }
                 None => {
                     crate::log("update: the installer did not open");
-                    match fallback_path() {
+                    match fallback_path(&version) {
                         Some(path) => format!(
                             "The installer did not open; the APK is at {} — \
                              open it with a file manager to install.",
@@ -275,14 +293,23 @@ fn latest_build() -> Result<Latest, String> {
             .unwrap_or_default()
             .to_owned(),
         size: asset.get("size").and_then(|v| v.as_u64()).unwrap_or(0),
+        digest: asset
+            .get("digest")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_owned(),
     })
 }
 
 #[cfg(target_os = "android")]
-fn download_latest(status: &Mutex<UpdateStatus>, ctx: &egui::Context) -> Result<Vec<u8>, String> {
+fn download_latest(
+    status: &Mutex<UpdateStatus>,
+    ctx: &egui::Context,
+) -> Result<(Vec<u8>, String), String> {
     use std::io::Read;
 
     let latest = latest_build()?;
+    let version = latest.version.clone();
     let reply = ureq::get(&latest.url)
         .set("User-Agent", USER_AGENT)
         .call()
@@ -317,15 +344,73 @@ fn download_latest(status: &Mutex<UpdateStatus>, ctx: &egui::Context) -> Result<
         }
         ctx.request_repaint();
     }
-    Ok(bytes)
+    // The download only installs when its fingerprint matches the one the
+    // release asset carries: a truncated or tampered APK never gets there.
+    let digest = apk_fingerprint(&bytes);
+    if latest.digest.is_empty() {
+        crate::log("update: the release carries no fingerprint; skipped the check");
+    } else if same_digest(&latest.digest, &digest) {
+        crate::log(&format!("update: fingerprint matched ({digest})"));
+    } else {
+        return Err(format!(
+            "the downloaded APK's fingerprint ({digest}) does not match the release's ({}); \
+             try the update again",
+            latest.digest
+        ));
+    }
+    Ok((bytes, version))
+}
+
+/// The SHA-256 fingerprint of `bytes`, lowercase hex.
+#[cfg(target_os = "android")]
+fn apk_fingerprint(bytes: &[u8]) -> String {
+    hex(ring::digest::digest(&ring::digest::SHA256, bytes).as_ref())
+}
+
+#[cfg(target_os = "android")]
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Whether a release asset's fingerprint (`sha256:…`, GitHub's case) is the
+/// download's.
+#[cfg(target_os = "android")]
+fn same_digest(expected: &str, actual: &str) -> bool {
+    expected
+        .rsplit(':')
+        .next()
+        .is_some_and(|value| value.eq_ignore_ascii_case(actual))
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(target_os = "android")]
+    #[test]
+    fn a_fingerprint_matches_its_own_hex_regardless_of_case_and_prefix() {
+        assert!(super::same_digest(
+            "sha256:ABCDEF0123456789",
+            "abcdef0123456789"
+        ));
+        assert!(super::same_digest("abcdef0123456789", "abcdef0123456789"));
+        assert!(!super::same_digest("sha256:abcdef", "000000"));
+    }
+
+    #[cfg(target_os = "android")]
+    #[test]
+    fn the_fingerprint_is_sha256_in_lowercase_hex() {
+        assert_eq!(
+            super::apk_fingerprint(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
 }
 
 /// A spare copy of the APK inside the app's own storage, in case the
 /// installer could not be opened and the user has to go through a file
 /// manager after all.
 #[cfg(target_os = "android")]
-fn save_fallback(bytes: &[u8]) -> String {
-    if let Some(path) = fallback_path() {
+fn save_fallback(bytes: &[u8], version: &str) -> String {
+    if let Some(path) = fallback_path(version) {
         return match std::fs::write(&path, bytes) {
             Ok(()) => format!("A copy is at {}", path.display()),
             Err(err) => format!("(a copy could not be kept: {err})"),
@@ -335,12 +420,71 @@ fn save_fallback(bytes: &[u8]) -> String {
 }
 
 #[cfg(target_os = "android")]
-fn fallback_path() -> Option<std::path::PathBuf> {
+fn fallback_path(version: &str) -> Option<std::path::PathBuf> {
     crate::android::external_dir().map(|dir| {
-        let path = dir.join("update").join(APK_NAME);
+        let path = dir
+            .join("update")
+            .join(format!("{APK_PREFIX}{version}.apk"));
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
         path
     })
+}
+
+/// Deletes the update APKs an installed update left behind: the Downloads
+/// copy the installer read and the spare copy in the app's storage. An APK
+/// is spent when the version in its name is not newer than the one running,
+/// so a download whose install was cancelled survives to be opened again.
+/// Runs once at start, when the setting asks for it.
+#[cfg(target_os = "android")]
+pub fn cleanup_apks() {
+    let current = build_version().to_owned();
+    let Some(app) = crate::android::app_handle() else {
+        return;
+    };
+    match musiccraft_android_java::downloaded_apk_names(&app) {
+        Ok(names) => {
+            for name in names {
+                let Some(version) = apk_version(&name) else {
+                    continue;
+                };
+                if newer(&version, &current) {
+                    continue;
+                }
+                match musiccraft_android_java::delete_downloaded_apk(&app, &name) {
+                    Ok(()) => crate::log(&format!("update: deleted the installed {name}")),
+                    Err(err) => crate::log(&format!("update: cannot delete {name}: {err}")),
+                }
+            }
+        }
+        Err(err) => crate::log(&format!("update: cannot list the downloaded APKs: {err}")),
+    }
+    let Some(dir) = crate::android::external_dir().map(|dir| dir.join("update")) else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(version) = apk_version(&name) else {
+            continue;
+        };
+        if newer(&version, &current) {
+            continue;
+        }
+        match std::fs::remove_file(entry.path()) {
+            Ok(()) => crate::log(&format!("update: deleted the installed {name}")),
+            Err(err) => crate::log(&format!("update: cannot delete {name}: {err}")),
+        }
+    }
+}
+
+/// The version in an update APK's name (`MusicCraft-update-0.6.0.apk`).
+#[cfg(target_os = "android")]
+fn apk_version(name: &str) -> Option<String> {
+    name.strip_prefix(APK_PREFIX)?
+        .strip_suffix(".apk")
+        .map(str::to_owned)
 }

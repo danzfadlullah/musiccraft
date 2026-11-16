@@ -59,7 +59,18 @@ pub fn run(dialog: FileDialog, mode: Mode) -> Vec<PathBuf> {
                 .unwrap_or_else(|| "untitled".to_owned()),
         },
     };
-    musiccraft_android_java::pick(musiccraft_android_java::SafRequest { mode })
+    // Every filter's extensions together: SAF has no named filters, so the
+    // panel offers all of the dialog's types at once.
+    let mut extensions: Vec<String> = Vec::new();
+    for (_, list) in &dialog._filters {
+        for extension in list {
+            let extension = extension.to_lowercase();
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
+            }
+        }
+    }
+    musiccraft_android_java::pick(musiccraft_android_java::SafRequest { mode, extensions })
 }
 
 /// One dialog at a time, with a tag saying what its answer is for.
@@ -147,6 +158,9 @@ mod android {
     pub struct FileDialog {
         _title: Option<String>,
         pub(crate) _file_name: Option<String>,
+        /// The filters' extensions, which the SAF panel turns into mime
+        /// types (`saf.rs`).
+        pub(crate) _filters: Vec<(String, Vec<String>)>,
     }
 
     impl FileDialog {
@@ -154,12 +168,13 @@ mod android {
             Self::default()
         }
 
-        pub fn add_filter(
-            mut self,
-            name: impl Into<String>,
-            _extensions: &[impl ToString],
-        ) -> Self {
-            self._title = Some(name.into());
+        pub fn add_filter(mut self, name: impl Into<String>, extensions: &[impl ToString]) -> Self {
+            let name = name.into();
+            self._filters.push((
+                name.clone(),
+                extensions.iter().map(|e| e.to_string()).collect(),
+            ));
+            self._title = Some(name);
             self
         }
 

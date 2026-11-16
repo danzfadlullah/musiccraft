@@ -69,6 +69,8 @@ pub struct Settings {
     pub keep_instrument_windows: bool,
     /// Write the activity log file (Android).
     pub logging: bool,
+    /// Delete the update APK once the update has installed (Android).
+    pub delete_apk: bool,
     /// The window arrangement when the app last closed, restored on start.
     pub window_layout: Option<WindowLayout>,
 }
@@ -110,6 +112,7 @@ impl Default for Settings {
             drive_map: Vec::new(),
             keep_instrument_windows: false,
             logging: true,
+            delete_apk: true,
             window_layout: None,
         }
     }
@@ -174,6 +177,8 @@ pub struct SettingsInfo {
     pub updates: UpdateInfo,
     /// Whether the activity log file is being written (Android).
     pub logging: bool,
+    /// Whether a finished update deletes its APK (Android).
+    pub delete_apk: bool,
 }
 
 /// What the app reports about its own updates (Android). Read-only.
@@ -643,6 +648,13 @@ fn general(ui: &mut egui::Ui, state: &mut UiState, frame: &Frame<'_>, actions: &
     toggle(ui, "Write the log file", settings.logging, |s, v| {
         s.logging = v
     });
+    #[cfg(target_os = "android")]
+    toggle(
+        ui,
+        "Delete the update APK after it installs",
+        settings.delete_apk,
+        |s, v| s.delete_apk = v,
+    );
 }
 
 fn folder_list(ui: &mut egui::Ui, folders: &[PathBuf]) -> Option<usize> {

@@ -303,6 +303,12 @@ impl App {
         log("App::new: settings loaded");
         #[cfg(target_os = "android")]
         android::set_logging(settings.logging);
+        // An update that finished installing leaves its APK behind; the
+        // setting decides whether this start sweeps it away.
+        #[cfg(target_os = "android")]
+        if settings.delete_apk {
+            update::cleanup_apks();
+        }
         let scan_plugins = settings.scan_plugins_on_start;
         // Sample paths from Windows projects translate with these folders.
         musiccraft_paths::configure(settings.path_config());
@@ -911,6 +917,7 @@ impl App {
         self.updater.poll();
         self.settings_info.updates = self.updater.info();
         self.settings_info.logging = self.settings.logging;
+        self.settings_info.delete_apk = self.settings.delete_apk;
     }
 
     /// Shows a running split's progress, and adds the stems once it is done.

@@ -35,6 +35,9 @@ pub enum SafMode {
 /// A pick request.
 pub struct SafRequest {
     pub mode: SafMode,
+    /// The dialog's file-type extensions, offered to the panel as mime
+    /// types (empty: every file).
+    pub extensions: Vec<String>,
 }
 
 /// The static field on the activity class that carries the answer.
@@ -205,6 +208,9 @@ fn launch(env: &mut JNIEnv, activity: &JObject, request: &SafRequest) -> Result<
         );
         checked(env, add)?;
     }
+    if !is_save && !request.extensions.is_empty() {
+        put_mime_types(env, &intent, &request.extensions)?;
+    }
     match &request.mode {
         SafMode::Files => {
             let key = checked(env, env.new_string("android.intent.extra.ALLOW_MULTIPLE"))?;
@@ -236,6 +242,51 @@ fn launch(env: &mut JNIEnv, activity: &JObject, request: &SafRequest) -> Result<
         &[JValue::Object(&intent), JValue::Int(PICK_REQUEST)],
     );
     checked(env, start)?;
+    Ok(())
+}
+
+/// The mime type SAF knows for a dialog extension; `None` leaves it to the
+/// octet-stream fallback.
+fn mime_of(extension: &str) -> Option<&'static str> {
+    match extension {
+        "mp3" => Some("audio/mpeg"),
+        "wav" => Some("audio/x-wav"),
+        "ogg" => Some("audio/ogg"),
+        "flac" => Some("audio/flac"),
+        "mid" | "midi" => Some("audio/midi"),
+        "m4a" => Some("audio/mp4"),
+        "aif" | "aiff" => Some("audio/aiff"),
+        "json" | "mcproj" => Some("application/json"),
+        _ => None,
+    }
+}
+
+/// Puts `android.intent.extra.MIME_TYPES` on the picker intent: the concrete
+/// mime types of the dialog's extensions, plus `application/octet-stream` so
+/// files whose type the provider does not report (a `.mcproj`, for one) stay
+/// visible.
+fn put_mime_types(env: &mut JNIEnv, intent: &JObject, extensions: &[String]) -> Result<(), String> {
+    let mimes: Vec<&str> = extensions
+        .iter()
+        .filter_map(|e| mime_of(e))
+        .chain(["application/octet-stream"])
+        .collect();
+    let empty = checked(env, env.new_string(""))?;
+    let new_array = env.new_object_array(mimes.len() as i32, "java/lang/String", empty);
+    let array = checked(env, new_array)?;
+    for (index, mime) in mimes.iter().enumerate() {
+        let value = checked(env, env.new_string(mime))?;
+        let set = env.set_object_array_element(&array, index as i32, value);
+        checked(env, set)?;
+    }
+    let key = checked(env, env.new_string("android.intent.extra.MIME_TYPES"))?;
+    let put = env.call_method(
+        intent,
+        "putExtra",
+        "(Ljava/lang/String;[Ljava/lang/String;)Landroid/content/Intent;",
+        &[JValue::Object(&key), JValue::Object(&array)],
+    );
+    checked(env, put)?;
     Ok(())
 }
 

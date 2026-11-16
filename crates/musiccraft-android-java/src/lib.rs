@@ -20,7 +20,7 @@ use jni::errors::Result as JniResult;
 use jni::objects::{JObject, JValueOwned};
 use jni::{JNIEnv, JavaVM};
 
-pub use install::install_apk;
+pub use install::{delete_downloaded_apk, downloaded_apk_names, install_apk};
 pub use saf::{SafMode, SafRequest, pick, sync};
 
 static APP: OnceLock<AndroidApp> = OnceLock::new();

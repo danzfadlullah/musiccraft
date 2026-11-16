@@ -52,6 +52,9 @@ pub enum Pick {
     SetPad(usize, usize),
     AddZone(usize),
     SetEffectFile(usize, usize),
+    /// A MIDI file's notes into this channel (0-based), like FL Studio's
+    /// File → Import → MIDI file.
+    ImportMidi(usize),
     AddFolder,
     AddPluginFolder,
     /// Settings → Folders: the FL Studio factory and user data folders.
@@ -146,6 +149,7 @@ impl FilePick {
     fn new(pick: Pick, title: &'static str, directory: Option<PathBuf>) -> Self {
         let filters = match pick {
             Pick::Open | Pick::SaveAs => vec![PROJECT_FILES],
+            Pick::ImportMidi(_) => vec![MIDI_FILES],
             Pick::Export => EXPORT_FILES.to_vec(),
             Pick::ExportMidi => vec![MIDI_FILES],
             Pick::SavePatch(_) => vec![PATCH_FILES],
@@ -219,6 +223,16 @@ impl FilePick {
     pub fn export_midi(project: &Project) -> Self {
         Self::new(Pick::ExportMidi, "Export MIDI file", project_dir(project))
             .named(format!("{}.mid", file_stem(project)))
+    }
+
+    /// A MIDI file whose notes join the selected channel's pattern, like FL
+    /// Studio's File → Import → MIDI file.
+    pub fn import_midi(project: &Project, channel: usize) -> Self {
+        Self::new(
+            Pick::ImportMidi(channel),
+            "Import MIDI file",
+            project_dir(project),
+        )
     }
 
     pub fn export_stems(project: &Project) -> Self {
@@ -307,6 +321,7 @@ impl FilePick {
             Pick::AddSample => Invocation::new("channel.add_sampler", [text]),
             Pick::SetSample(c) => Invocation::new("channel.set_sample", [ch(c), text]),
             Pick::AddZone(c) => Invocation::new("channel.add_zone", [ch(c), text]),
+            Pick::ImportMidi(c) => Invocation::new("note.import_midi", [ch(c), text]),
             Pick::SetPad(c, pad) => Invocation::new("channel.set_pad", [ch(c), ch(pad), text]),
             Pick::SetEffectFile(track, slot) => {
                 Invocation::new("mixer.set_effect_file", [track.to_string(), ch(slot), text])
@@ -810,6 +825,9 @@ mod tests {
         assert_eq!(sample.filters, [("WAV audio", &["wav"][..])]);
         let patch = FilePick::save_patch(1, "Big/Lead", &project);
         assert_eq!(patch.file_name.as_deref(), Some("Big-Lead.json"));
+        let midi = FilePick::import_midi(&project, 2);
+        assert_eq!(midi.mode(), PickMode::File);
+        assert_eq!(midi.filters, [("MIDI file", &["mid", "midi"][..])]);
         let open = FilePick::open_patch(1, &project);
         assert!(
             open.filters[0].1.contains(&"SerumPreset"),
@@ -854,6 +872,13 @@ mod tests {
         assert_eq!(
             run(state.picked(&pad, &files)),
             ["channel.set_pad 3 5 /s/a.wav"]
+        );
+        // A MIDI file's notes join the chosen channel.
+        let midi = FilePick::import_midi(&project, 1);
+        let song = [PathBuf::from("/songs/Song.mid")];
+        assert_eq!(
+            run(state.picked(&midi, &song)),
+            ["note.import_midi 2 /songs/Song.mid"]
         );
         let osc = FilePick::sample(Pick::AntiserumSample(0, 1), "", &project);
         assert_eq!(
