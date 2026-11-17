@@ -82,7 +82,7 @@ instead: `Android/data/io.github.bhimio1.musiccraft/files/MusicCraft/update/`,
 open it with a file manager.
 
 The spare copy in the app's storage carries the version in its name
-(`MusicCraft-update-0.10.7.apk`). Once an update has installed,
+(`MusicCraft-update-0.10.8.apk`). Once an update has installed,
 the next start sweeps the spent ones out (its version is not newer than the
 one running; a download whose install was cancelled survives) — both the
 spare copies and the `Download/MusicCraft/` entries older versions left
@@ -101,7 +101,8 @@ for this check alone; nothing else in the app reaches the network.
 
 ## Logs
 
-The app writes `musiccraft.log` — what it does as it does it: start-up,
+The app writes one log file per session, named after the session's start
+(`musiccraft-20261117-062022.log`) — what it does as it does it: start-up,
 every command the interface runs, file picks and their answers, audio and
 MIDI (re)starts, the update check, download and install, and panics — to,
 in order:
@@ -113,7 +114,9 @@ in order:
 3. `Download/MusicCraft/` — where the system allows it.
 
 Writing the log can be switched off in **Settings → General** ("Write the
-log file"); panics are logged either way.
+log file"); panics are logged either way. Old sessions' logs are pruned to
+the newest ten per folder, so a session's log never mixes into another's
+and the folders cannot grow without bound.
 
 When reporting a crash, send that file, or run `adb logcat` while opening the
 app. The Actions tab can also build a debug APK (Run workflow → profile:

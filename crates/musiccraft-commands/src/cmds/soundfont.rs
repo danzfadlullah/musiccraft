@@ -139,11 +139,14 @@ pub(super) fn loaded_font(project: &Project) -> Option<(String, Soundfont)> {
 }
 
 /// The app's bundled General MIDI soundfont, when it is installed this
-/// session.
+/// session: the installed file's path, which the zones' `soundfont:`
+/// samples must reference (the soundfont's own name is a display name,
+/// not a path — `TimGM6mb1.sf2` exists nowhere on disk).
 pub(super) fn default_font() -> Option<(String, Soundfont)> {
     let path = musiccraft_paths::bundled_soundfont()?;
-    let font = parse_file(&path.display().to_string()).ok()?;
-    Some((font.name().to_owned(), font))
+    let path = path.display().to_string();
+    let font = parse_file(&path).ok()?;
+    Some((path, font))
 }
 
 /// A soundfont preset a channel can switch to: the 1-based preset number

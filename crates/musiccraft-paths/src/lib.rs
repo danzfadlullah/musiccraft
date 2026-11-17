@@ -212,6 +212,13 @@ pub fn bundled_soundfont() -> Option<PathBuf> {
     BUNDLED_SOUND_FONT.lock().ok().and_then(|slot| slot.clone())
 }
 
+/// Forgets the bundled soundfont (tests that install their own).
+pub fn clear_bundled_soundfont() {
+    if let Ok(mut slot) = BUNDLED_SOUND_FONT.lock() {
+        *slot = None;
+    }
+}
+
 /// The current configuration and its generation; detected on first use.
 #[must_use]
 pub fn current() -> (u64, PathConfig) {

@@ -329,6 +329,10 @@ fn antiserum_commands_check_their_arguments() {
 /// Held by tests that point the user presets at a folder of their own.
 static USER_PRESETS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Serializes the tests that install a bundled soundfont: the global slot
+/// in `musiccraft-paths` is shared by the whole test process.
+static BUNDLED_FONT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn antiserum_user_presets_save_list_load_and_delete() {
     let _folder = USER_PRESETS
@@ -1807,6 +1811,7 @@ fn set_soundfont_preset_replaces_any_channels_instrument() {
 
 #[test]
 fn soundfont_preset_choices_follow_the_channels_font() {
+    let _guard = BUNDLED_FONT.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sfpc-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -1869,6 +1874,36 @@ fn an_unreadable_font_shows_up_as_unreadable_instead_of_vanishing() {
     assert_eq!(listed.len(), 2);
     assert!(listed[0].presets.is_none());
     assert!(listed[1].presets.is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_bundled_font_is_offered_by_its_installed_path() {
+    let _guard = BUNDLED_FONT.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sfbp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = soundfont_file(&dir);
+    musiccraft_paths::set_bundled_soundfont(file.clone());
+    // The bundled font plays by its installed path: the zones' samples
+    // must reference the file on disk, not the soundfont's internal name
+    // (TimGM6mb's own name is `TimGM6mb1.sf2`, a file that exists
+    // nowhere — a MIDI import through that name plays silence).
+    let (path, font) = super::soundfont::default_font().expect("bundled font");
+    assert_eq!(path, file.to_string_lossy());
+    let (_, zones) = super::soundfont::gm_preset(&font, &path, 0, Some(0)).expect("a GM preset");
+    assert!(!zones.is_empty());
+    for zone in &zones {
+        assert_eq!(
+            zone.sample,
+            format!(
+                "soundfont:{path}#{}",
+                zone.sample.rsplit_once('#').unwrap().1
+            )
+        );
+    }
+    musiccraft_paths::clear_bundled_soundfont();
+    assert!(super::soundfont::default_font().is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

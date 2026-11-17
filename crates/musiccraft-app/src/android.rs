@@ -5,7 +5,7 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -13,6 +13,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 static APP: OnceLock<android_activity::AndroidApp> = OnceLock::new();
 static LOG_DIRS: OnceLock<Vec<PathBuf>> = OnceLock::new();
 static LOGGING: AtomicBool = AtomicBool::new(true);
+/// This session's log file name, fixed at the first log line: one file per
+/// run, so an old session's log never mixes into a new one's.
+static SESSION_LOG: OnceLock<String> = OnceLock::new();
 
 /// Called once from `run_android`, before anything reads folders or logs.
 pub fn set_app(app: android_activity::AndroidApp) {
@@ -66,26 +69,65 @@ pub fn set_logging(enabled: bool) {
 }
 
 /// Installs the panic hook and logs the start-up banner, including where the
-/// log itself lives.
+/// log itself lives. Also prunes old sessions' logs: only the newest few
+/// stay, so the folders cannot grow without bound.
 pub fn init_logging() {
     std::panic::set_hook(Box::new(|info| {
         let message = format!("PANIC: {info}");
         log_panic(&message);
     }));
+    for dir in log_dirs() {
+        prune_logs(dir);
+    }
     log(&format!(
         "MusicCraft starting (Android API {}); logging to {}",
         android_activity::AndroidApp::sdk_version(),
         log_dirs()
             .iter()
-            .map(|d| d.join("musiccraft.log").display().to_string())
+            .map(|d| d.join(session_log()).display().to_string())
             .collect::<Vec<_>>()
             .join(", ")
     ));
 }
 
-/// Appends `message` to `musiccraft.log` in every log folder, and mirrors it
-/// to logcat (native stderr lands there). Opening the file per line keeps
-/// the writer simple.
+/// This session's log file name (`musiccraft-<start time>.log`), fixed at
+/// first use from the current time.
+fn session_log() -> String {
+    SESSION_LOG
+        .get_or_init(|| {
+            let digits: String = timestamp().chars().filter(|c| c.is_ascii_digit()).collect();
+            format!("musiccraft-{}-{}.log", &digits[..8], &digits[8..14])
+        })
+        .clone()
+}
+
+/// Session logs are one file per run; only the newest [`KEEP_LOGS`] stay in
+/// each folder, the rest are deleted (best effort).
+const KEEP_LOGS: usize = 10;
+
+fn prune_logs(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut logs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("musiccraft-") && name.ends_with(".log"))
+        })
+        .collect();
+    logs.sort();
+    while logs.len() > KEEP_LOGS {
+        let oldest = logs.remove(0);
+        let _ = fs::remove_file(oldest);
+    }
+}
+
+/// Appends `message` to this session's log file in every log folder, and
+/// mirrors it to logcat (native stderr lands there). Opening the file per
+/// line keeps the writer simple.
 pub fn log(message: &str) {
     if !LOGGING.load(Ordering::Relaxed) {
         return;
@@ -102,6 +144,7 @@ pub fn log_panic(message: &str) {
 fn write_line(message: &str) {
     eprintln!("MusicCraft: {message}");
     let line = format!("[{}] {message}\n", timestamp());
+    let name = session_log();
     for dir in log_dirs() {
         if fs::create_dir_all(dir).is_err() {
             continue;
@@ -109,7 +152,7 @@ fn write_line(message: &str) {
         if let Ok(mut file) = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(dir.join("musiccraft.log"))
+            .open(dir.join(&name))
         {
             let _ = file.write_all(line.as_bytes());
         }
