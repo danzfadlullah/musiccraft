@@ -81,6 +81,9 @@ pub struct ZoneRef {
     /// The key at which it plays at its own speed.
     #[serde(default = "middle_c")]
     pub root: u8,
+    /// Extra tuning in cents (-50..50), on top of the root key.
+    #[serde(default)]
+    pub tune: i8,
     /// Lowest velocity it plays (1–127).
     #[serde(default = "lowest_velocity")]
     pub vel_low: u8,
@@ -110,6 +113,7 @@ impl ZoneRef {
             low,
             high,
             root,
+            tune: 0,
             vel_low: 1,
             vel_high: 127,
         }
