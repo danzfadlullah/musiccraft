@@ -1779,6 +1779,59 @@ fn soundfont_commands_refuse_builtin_when_it_is_not_installed() {
 }
 
 #[test]
+fn set_soundfont_preset_replaces_any_channels_instrument() {
+    let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sfp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let font = soundfont_file(&dir).to_string_lossy().into_owned();
+    let mut s = session();
+    run(&mut s, "channel.add_synth Lead");
+    run(&mut s, "channel.set_volume 1 0.5");
+    run(&mut s, "note.add 1 0 4 C5");
+    run(&mut s, &format!("channel.set_soundfont_preset 1 {font} 1"));
+    let channel = &s.project().channels[0];
+    assert_eq!(channel.name, "Lead");
+    assert!((channel.volume - 0.5).abs() < 1e-6);
+    let Instrument::Zones { zones } = &channel.instrument else {
+        panic!("{} is not a zone sampler", channel.name);
+    };
+    assert_eq!(zones.len(), 1);
+    assert_eq!(zones[0].sample, format!("soundfont:{font}#0"));
+    run(&mut s, "edit.undo");
+    let channel = &s.project().channels[0];
+    assert!(matches!(channel.instrument, Instrument::Synth));
+    assert_eq!(s.project().current_pattern().notes.len(), 1);
+    fails(&mut s, &format!("channel.set_soundfont_preset 1 {font} 2"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn soundfont_preset_choices_follow_the_channels_font() {
+    let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sfpc-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let font = soundfont_file(&dir).to_string_lossy().into_owned();
+    let mut s = session();
+    run(&mut s, "channel.add_synth Lead");
+    // Nothing loaded and no bundled font installed: nothing to offer.
+    assert!(super::soundfont::channel_font_path(s.project(), 0).is_none());
+    run(&mut s, &format!("channel.add_soundfont {font}"));
+    // The zone sampler offers its own font; the synth channel falls back
+    // to the project's first soundfont.
+    for index in 0..2 {
+        let path = super::soundfont::channel_font_path(s.project(), index).unwrap();
+        assert_eq!(path, font);
+        let presets = super::soundfont::preset_list(&path).unwrap();
+        assert_eq!(presets.len(), 1);
+        assert_eq!(presets[0].preset, 1);
+        assert_eq!(presets[0].bank, 0);
+        assert_eq!(presets[0].program, 0);
+        assert_eq!(presets[0].name, "Grand");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn set_instrument_swaps_the_sound_and_keeps_the_channel() {
     let mut s = session();
     run(&mut s, "channel.add_synth Lead");

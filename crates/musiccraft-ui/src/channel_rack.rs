@@ -849,6 +849,7 @@ fn channel_items(
                 ui.close();
             }
         }
+        soundfont_presets(ui, state, project, index, &number, actions);
     });
     ui.menu_button("Colour", |ui| {
         if let Some(choice) = crate::swatches::grid(ui, channel.color) {
@@ -876,6 +877,60 @@ fn channel_items(
         run(actions, "channel.remove", [number]);
         ui.close();
     }
+}
+
+/// The soundfont presets at the end of the Change instrument menu: General
+/// MIDI when the bundled font is playing, the project's own soundfont
+/// otherwise. The list scrolls — a GM font carries over a hundred presets —
+/// and is cached in the state per font path, so the soundfont is parsed
+/// once, not every frame the menu stays open.
+fn soundfont_presets(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    project: &Project,
+    index: usize,
+    number: &str,
+    actions: &mut Vec<Action>,
+) {
+    let Some(path) = musiccraft_commands::channel_font_path(project, index) else {
+        ui.separator();
+        ui.weak("No soundfont in use — add one from Options → Soundfonts");
+        return;
+    };
+    let stale = state
+        .soundfont_presets
+        .as_ref()
+        .map(|(cached, _)| cached != &path)
+        .unwrap_or(true);
+    if stale {
+        let presets = musiccraft_commands::preset_list(&path);
+        state.soundfont_presets = Some((path.clone(), presets));
+    }
+    ui.separator();
+    let Some((_, Some(presets))) = &state.soundfont_presets else {
+        ui.weak("The soundfont could not be read");
+        return;
+    };
+    egui::ScrollArea::vertical()
+        .max_height(320.0)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            for preset in presets {
+                let label = if preset.bank >= 128 {
+                    format!("{} (drum kit)", preset.name)
+                } else {
+                    preset.name.clone()
+                };
+                if ui.button(label).clicked() {
+                    run(
+                        actions,
+                        "channel.set_soundfont_preset",
+                        [number.to_owned(), path.clone(), preset.preset.to_string()],
+                    );
+                    ui.close();
+                }
+            }
+        });
 }
 
 /// The channel menu's second column: steps, solo and order.

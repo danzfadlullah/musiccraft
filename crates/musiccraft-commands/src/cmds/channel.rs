@@ -465,14 +465,21 @@ struct InstrumentSnapshot {
     params: musiccraft_project::InstrumentParams,
 }
 
+/// The channel's instrument and parameters as the JSON
+/// `channel.set_instrument` accepts back — the undo of any command that
+/// replaces a channel's instrument wholesale (the soundfont preset switch).
+pub(super) fn snapshot_json(channel: &Channel) -> Result<String, serde_json::Error> {
+    serde_json::to_string(&InstrumentSnapshot {
+        instrument: channel.instrument.clone(),
+        params: channel.params,
+    })
+}
+
 fn set_instrument(project: &mut Project, args: &Args<'_>) -> Result<Outcome, CommandError> {
     args.expect(2, 2)?;
     let index = channel_arg(project, args, 0)?;
     let kind = args.str(1)?;
-    let old = InstrumentSnapshot {
-        instrument: project.channels[index].instrument.clone(),
-        params: project.channels[index].params,
-    };
+    let json = snapshot_json(&project.channels[index]).map_err(|e| args.invalid(e.to_string()))?;
     let (instrument, params) = if let Ok(rest) = serde_json::from_str::<InstrumentSnapshot>(kind) {
         (rest.instrument, rest.params)
     } else {
@@ -513,7 +520,6 @@ fn set_instrument(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Com
     let channel = &mut project.channels[index];
     channel.instrument = instrument;
     channel.params = params;
-    let json = serde_json::to_string(&old).map_err(|e| args.invalid(e.to_string()))?;
     Ok(Outcome::undoable(
         format!("channel {} plays {}", index + 1, label),
         Invocation::new("channel.set_instrument", [(index + 1).to_string(), json]),

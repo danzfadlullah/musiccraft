@@ -78,7 +78,7 @@ instead: `Android/data/io.github.bhimio1.musiccraft/files/MusicCraft/update/`,
 open it with a file manager.
 
 The spare copy in the app's storage carries the version in its name
-(`MusicCraft-update-0.10.4.apk`). Once an update has installed,
+(`MusicCraft-update-0.10.5.apk`). Once an update has installed,
 the next start sweeps the spent ones out (its version is not newer than the
 one running; a download whose install was cancelled survives) — both the
 spare copies and the `Download/MusicCraft/` entries older versions left

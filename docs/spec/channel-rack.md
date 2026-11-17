@@ -29,6 +29,13 @@
   restores the previous instrument and its parameters exactly (the inverse
   carries them as a JSON `{instrument, params}` object, the same command's
   sixth form). UI: right-click a channel → Change instrument ▸.
+- `channel.set_soundfont_preset <n> <file.sf2|builtin> <preset>` replaces any
+  channel's instrument with a SoundFont preset's zones (preset 1 is the
+  first; `builtin` is the bundled GM soundfont) — the same swap for channels
+  that are not zone samplers yet, with the same undo. UI: Change instrument ▸
+  lists the soundfont's presets under the built-in synths, scrolling (a GM
+  font carries over a hundred), drum kits marked. The list follows the
+  channel's own soundfont, else the project's first, else the bundled one.
 - `channel.swap_sound <a> <b>` swaps the sounds of two channels: their names,
   instruments and instrument parameters. Everything else (steps and notes,
   volume, pan, mute and solo, mixer track, group, colour, the place in the
@@ -115,7 +122,8 @@
   that channel one slot per notch (`channel.move`, as Alt+Up / Alt+Down).
 - Right-clicking a channel's name opens its menu in two columns. First: Open
   in piano roll, Channel settings; Rename…, Change sample… (samplers),
-  Change instrument ▸, Colour ▸, Group…; Clone, Delete. Second: Cut steps, Copy steps, Paste
+  Change instrument ▸ (the built-in synths, then the soundfont's presets,
+  scrolling), Colour ▸, Group…; Clone, Delete. Second: Cut steps, Copy steps, Paste
   steps (the same as Ctrl+X / C / V over the rack, for this channel), Clear
   notes in pattern; Turn on every 2nd / 4th / 8th step; Shift left, Shift
   right; Graph editor (selects the channel and opens the graph), Solo, Move

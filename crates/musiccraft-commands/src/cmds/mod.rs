@@ -19,7 +19,7 @@ mod project;
 mod rack;
 mod record;
 pub(crate) mod sample_paths;
-mod soundfont;
+pub(crate) mod soundfont;
 mod transport;
 mod zones;
 

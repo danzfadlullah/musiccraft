@@ -671,6 +671,10 @@ pub struct UiState {
     /// The user asked for the update from the pop-up, so its failures and
     /// result belong there too (an automatic check's failure stays quiet).
     pub(crate) update_install_requested: bool,
+    /// The soundfont presets the channel menu's instrument list shows,
+    /// cached per font path: parsing a soundfont every frame the menu is
+    /// open would burn the frame budget.
+    pub(crate) soundfont_presets: Option<(String, Option<Vec<musiccraft_commands::PresetChoice>>)>,
     /// A name being renamed where it is drawn.
     renaming: Option<dialogs::InPlace>,
     antiserum: antiserum::AntiserumUi,
@@ -774,6 +778,7 @@ impl UiState {
             file_pick: None,
             update_dismissed: None,
             update_install_requested: false,
+            soundfont_presets: None,
             antiserum: antiserum::AntiserumUi::default(),
         }
     }

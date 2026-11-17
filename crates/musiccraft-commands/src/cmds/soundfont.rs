@@ -27,6 +27,12 @@ pub(super) fn commands() -> Vec<Box<dyn Command>> {
             load_soundfont,
         ),
         cmd(
+            "channel.set_soundfont_preset",
+            "channel.set_soundfont_preset <channel> <file.sf2|builtin> <preset>",
+            "Replace a channel's instrument with a SoundFont preset's zones (preset 1 is the first; `builtin` is the app's bundled GM soundfont).",
+            set_soundfont_preset,
+        ),
+        cmd(
             "soundfont.presets",
             "soundfont.presets <file.sf2|builtin>",
             "List a SoundFont's presets as `index bank:program name`.",
@@ -140,6 +146,63 @@ pub(super) fn default_font() -> Option<(String, Soundfont)> {
     Some((font.name().to_owned(), font))
 }
 
+/// A soundfont preset a channel can switch to: the 1-based preset number
+/// `channel.set_soundfont_preset` takes, the bank and program it plays, and
+/// its name for the menu.
+#[derive(Debug, Clone)]
+pub struct PresetChoice {
+    pub preset: usize,
+    pub bank: u16,
+    pub program: u16,
+    pub name: String,
+}
+
+/// The soundfont whose presets a channel's instrument menu offers: the
+/// channel's own when it is a zone sampler, else the project's first
+/// soundfont, else the bundled GM soundfont. Returns the path the soundfont
+/// commands accept, so the menu's picks can name it.
+pub fn channel_font_path(project: &Project, index: usize) -> Option<String> {
+    fn font_zone(channel: &Channel) -> Option<&str> {
+        match &channel.instrument {
+            Instrument::Zones { zones } => {
+                zones.first().and_then(|zone| soundfont_path(&zone.sample))
+            }
+            _ => None,
+        }
+    }
+    project
+        .channels
+        .get(index)
+        .and_then(font_zone)
+        .map(str::to_owned)
+        .or_else(|| {
+            project
+                .channels
+                .iter()
+                .find_map(font_zone)
+                .map(str::to_owned)
+        })
+        .or_else(|| musiccraft_paths::bundled_soundfont().map(|path| path.display().to_string()))
+}
+
+/// The presets of the soundfont at `path`, for the channel menu. `None`
+/// when the file cannot be read or parsed, or has no presets.
+pub fn preset_list(path: &str) -> Option<Vec<PresetChoice>> {
+    let font = parse_file(path).ok()?;
+    let presets: Vec<PresetChoice> = font
+        .presets()
+        .iter()
+        .enumerate()
+        .map(|(index, preset)| PresetChoice {
+            preset: index + 1,
+            bank: preset.bank,
+            program: preset.program,
+            name: preset.name.clone(),
+        })
+        .collect();
+    (!presets.is_empty()).then_some(presets)
+}
+
 /// The preset a MIDI channel plays in a General MIDI soundfont: melodic
 /// channels play bank 0 program N (the file's program change, default 0),
 /// the drum channel 9 plays the bank 128 kit, falling back to the first
@@ -181,6 +244,26 @@ fn add_soundfont(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comm
     Ok(push_channel(
         project,
         Channel::new(id, name, Instrument::Zones { zones }),
+    ))
+}
+
+/// Replaces any channel's instrument with a soundfont preset's zones —
+/// `channel.load_soundfont` for channels that are not zone samplers yet.
+/// The undo is `channel.set_instrument` with the old instrument's snapshot.
+fn set_soundfont_preset(project: &mut Project, args: &Args<'_>) -> Result<Outcome, CommandError> {
+    args.expect(3, 3)?;
+    let index = channel_arg(project, args, 0)?;
+    let path = resolve_path(args.str(1)?, args)?;
+    let (preset, zones) = preset_zones(&path, args, 2)?;
+    let number = index + 1;
+    let old = super::channel::snapshot_json(&project.channels[index])
+        .map_err(|e| args.invalid(e.to_string()))?;
+    let channel = &mut project.channels[index];
+    channel.instrument = Instrument::Zones { zones };
+    channel.params = musiccraft_project::InstrumentParams::default();
+    Ok(Outcome::undoable(
+        format!("channel {number}: {preset}"),
+        Invocation::new("channel.set_instrument", [number.to_string(), old]),
     ))
 }
 
