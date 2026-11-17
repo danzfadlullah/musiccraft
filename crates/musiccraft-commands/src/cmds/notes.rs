@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use musiccraft_project::music::key_name;
 use musiccraft_project::params::TICKS_PER_STEP;
 use musiccraft_project::{
-    Channel, ChannelId, DEFAULT_VELOCITY, Instrument, MAX_PATTERN_STEPS, Note, Project, STEP_KEY,
+    Channel, ChannelId, DEFAULT_VELOCITY, Instrument, MAX_PATTERN_STEPS, MAX_TEMPO_BPM,
+    MIN_TEMPO_BPM, Note, Project, STEP_KEY,
 };
 
 use super::channel::{channel_arg, push_channel};
@@ -646,9 +647,21 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
     if let Some(sig) = sig {
         project.patterns[target.pattern].set_time_signature(sig);
     }
+    // The file's first tempo becomes the project's.
+    let tempo_inverse = match file.tempo_bpm {
+        Some(bpm) if (project.tempo_bpm() - bpm).abs() >= f64::EPSILON => {
+            let bpm = bpm.clamp(MIN_TEMPO_BPM, MAX_TEMPO_BPM);
+            let previous = project
+                .set_tempo_bpm(bpm)
+                .map_err(|e| args.invalid(e.to_string()))?;
+            Some(Invocation::new("project.set_tempo", [previous.to_string()]))
+        }
+        _ => None,
+    };
     // One MIDI channel per group: a single-channel file joins the selected
     // channel, a multi-channel file opens every part as its own channel so
-    // each track keeps its own instrument, like FL Studio's import.
+    // each track keeps its own instrument, volume and pan, like FL Studio's
+    // import.
     let mut groups: BTreeMap<u8, Vec<Note>> = BTreeMap::new();
     for (midi_channel, note) in imported {
         groups.entry(midi_channel).or_default().push(note);
@@ -663,15 +676,14 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
             notes.extend(imported);
             notes
         });
-        let notes_inverse = target.set_all_inverse(&old);
-        let inverse = match meter_inverse {
-            Some(meter) => {
-                Invocation::new(crate::BATCH, [notes_inverse.to_string(), meter.to_string()])
-            }
-            None => notes_inverse,
-        };
+        let mut inverses = vec![target.set_all_inverse(&old)];
+        inverses.extend(tempo_inverse);
+        inverses.extend(meter_inverse);
         let message = format!("imported {count} notes into channel {}", target.channel + 1);
-        return Ok(Outcome::undoable(format!("{message}{suffix}"), inverse));
+        return Ok(Outcome::undoable(
+            format!("{message}{suffix}"),
+            batch(inverses),
+        ));
     }
     let stem = std::path::Path::new(path)
         .file_stem()
@@ -679,11 +691,33 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
         .unwrap_or("MIDI")
         .to_owned();
     let new_channels = groups.len();
-    let mut removes = Vec::new();
+    let mut inverses = Vec::new();
     for (midi_channel, notes) in groups {
-        let name = format!("{stem} {}", midi_channel + 1);
+        let info = file.parts.get(&midi_channel).cloned().unwrap_or_default();
+        let name = info
+            .name
+            .or_else(|| {
+                (midi_channel != 9)
+                    .then_some(info.program)
+                    .flatten()
+                    .map(|p| crate::midi_file::gm_name(p).to_owned())
+            })
+            .unwrap_or_else(|| {
+                if midi_channel == 9 {
+                    "Drums".to_owned()
+                } else {
+                    format!("{stem} {}", midi_channel + 1)
+                }
+            });
         let id = ChannelId(project.alloc_id());
-        push_channel(project, Channel::new(id, name, Instrument::Synth));
+        let mut channel = Channel::new(id, name, Instrument::Synth);
+        if let Some(volume) = info.volume {
+            channel.volume = (f32::from(volume) / 127.0).powi(2);
+        }
+        if let Some(pan) = info.pan {
+            channel.pan = ((f32::from(pan) - 64.0) / 63.0).clamp(-1.0, 1.0);
+        }
+        push_channel(project, channel);
         let number = project.channels.len();
         let pattern = &mut project.patterns[target.pattern];
         for note in notes {
@@ -692,19 +726,14 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
                 ..note
             });
         }
-        removes.push(Invocation::new("channel.remove", [number.to_string()]).to_string());
+        inverses.push(Invocation::new("channel.remove", [number.to_string()]));
     }
-    removes.reverse();
-    let notes_inverse = Invocation::new(crate::BATCH, removes);
-    let inverse = match meter_inverse {
-        Some(meter) => {
-            Invocation::new(crate::BATCH, [notes_inverse.to_string(), meter.to_string()])
-        }
-        None => notes_inverse,
-    };
+    inverses.reverse();
+    inverses.extend(tempo_inverse);
+    inverses.extend(meter_inverse);
     Ok(Outcome::undoable(
         format!("imported {count} notes into {new_channels} new channels{suffix}"),
-        inverse,
+        batch(inverses),
     ))
 }
 

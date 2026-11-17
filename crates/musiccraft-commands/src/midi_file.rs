@@ -1,6 +1,8 @@
 //! Reader for Standard MIDI Files (SMF formats 0 and 1), enough to import notes.
 //! Follows the public MIDI 1.0 specification's file format.
 
+use std::collections::BTreeMap;
+
 /// A note read from a MIDI file, timed in the file's own ticks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FileNote {
@@ -12,13 +14,28 @@ pub(crate) struct FileNote {
     pub channel: u8,
 }
 
+/// What a MIDI channel said about itself outside its notes: the track name
+/// it first sounded in, its last program change, and its last channel
+/// volume (`CC7`) and pan (`CC10`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct PartInfo {
+    pub name: Option<String>,
+    pub program: Option<u8>,
+    pub volume: Option<u8>,
+    pub pan: Option<u8>,
+}
+
 /// Notes and the file's ticks per quarter note.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MidiFile {
     pub ticks_per_quarter: u16,
     pub notes: Vec<FileNote>,
     /// The earliest time signature: numerator and denominator.
     pub time_signature: Option<(u32, u32)>,
+    /// The first tempo event, in beats per minute.
+    pub tempo_bpm: Option<f64>,
+    /// Per MIDI channel (0-15) what [`PartInfo`] records.
+    pub parts: BTreeMap<u8, PartInfo>,
 }
 
 /// Most notes accepted from one file.
@@ -73,12 +90,20 @@ impl<'a> Reader<'a> {
 /// The earliest time signature seen: (time, numerator, denominator).
 type FirstSig = Option<(u64, u32, u32)>;
 
-fn read_track(data: &[u8], notes: &mut Vec<FileNote>, sig: &mut FirstSig) -> Result<(), String> {
+fn read_track(
+    data: &[u8],
+    notes: &mut Vec<FileNote>,
+    sig: &mut FirstSig,
+    tempo: &mut Option<f64>,
+    parts: &mut BTreeMap<u8, PartInfo>,
+) -> Result<(), String> {
     let mut r = Reader { data, pos: 0 };
     let mut time = 0_u64;
     let mut running: Option<u8> = None;
     // Sounding notes: (channel, key) → (start, velocity), oldest first.
     let mut open: Vec<(u8, u8, u64, u8)> = Vec::new();
+    // This track's name (meta 0x03), kept for the channels that sound in it.
+    let mut track_name: Option<String> = None;
     while r.pos < data.len() {
         time = time.saturating_add(r.vlq()?);
         let first = r.byte()?;
@@ -101,6 +126,18 @@ fn read_track(data: &[u8], notes: &mut Vec<FileNote>, sig: &mut FirstSig) -> Res
                     let den = 1_u32.checked_shl(u32::from(*power)).unwrap_or(0);
                     *sig = Some((time, u32::from(*num), den));
                 }
+                if kind == 0x51
+                    && let [high, middle, low] = body
+                {
+                    let us = (u32::from(*high) << 16) | (u32::from(*middle) << 8) | u32::from(*low);
+                    if us > 0 && tempo.is_none() {
+                        *tempo = Some(60_000_000.0 / f64::from(us));
+                    }
+                }
+                if kind == 0x03 {
+                    let name = String::from_utf8_lossy(body).trim().to_owned();
+                    track_name = (!name.is_empty()).then_some(name);
+                }
                 if kind == 0x2f {
                     break;
                 }
@@ -120,6 +157,10 @@ fn read_track(data: &[u8], notes: &mut Vec<FileNote>, sig: &mut FirstSig) -> Res
                         let velocity = r.byte()? & 0x7f;
                         if status & 0xf0 == 0x90 && velocity > 0 {
                             open.push((channel, key, time, velocity));
+                            let part = parts.entry(channel).or_default();
+                            if part.name.is_none() {
+                                part.name = track_name.clone();
+                            }
                         } else if let Some(i) = open
                             .iter()
                             .position(|(c, k, ..)| *c == channel && *k == key)
@@ -134,7 +175,21 @@ fn read_track(data: &[u8], notes: &mut Vec<FileNote>, sig: &mut FirstSig) -> Res
                             });
                         }
                     }
-                    0xa0 | 0xb0 | 0xe0 => {
+                    0xb0 => {
+                        let controller = r.byte()?;
+                        let value = r.byte()?;
+                        let part = parts.entry(channel).or_default();
+                        match controller {
+                            7 => part.volume = Some(value),
+                            10 => part.pan = Some(value),
+                            _ => {}
+                        }
+                    }
+                    0xc0 => {
+                        let program = r.byte()?;
+                        parts.entry(channel).or_default().program = Some(program);
+                    }
+                    0xa0 | 0xe0 => {
                         r.bytes(2)?;
                     }
                     _ => {
@@ -179,6 +234,8 @@ pub(crate) fn parse(data: &[u8]) -> Result<MidiFile, String> {
     }
     let mut notes = Vec::new();
     let mut sig = None;
+    let mut tempo = None;
+    let mut parts = BTreeMap::new();
     for _ in 0..tracks {
         if r.pos >= data.len() {
             break;
@@ -187,7 +244,7 @@ pub(crate) fn parse(data: &[u8]) -> Result<MidiFile, String> {
         let len = r.u32()? as usize;
         let chunk = r.bytes(len)?;
         if kind == b"MTrk" {
-            read_track(chunk, &mut notes, &mut sig)?;
+            read_track(chunk, &mut notes, &mut sig, &mut tempo, &mut parts)?;
         }
     }
     notes.sort_by_key(|n| (n.start, n.key));
@@ -195,7 +252,145 @@ pub(crate) fn parse(data: &[u8]) -> Result<MidiFile, String> {
         ticks_per_quarter: division,
         notes,
         time_signature: sig.map(|(_, num, den)| (num, den)),
+        tempo_bpm: tempo,
+        parts,
     })
+}
+
+/// The General MIDI program's instrument name (program change 0-127).
+#[must_use]
+pub(crate) fn gm_name(program: u8) -> &'static str {
+    const NAMES: [&str; 128] = [
+        "Grand Piano",
+        "Bright Grand Piano",
+        "Electric Grand",
+        "Honky-tonk Piano",
+        "Electric Piano 1",
+        "Electric Piano 2",
+        "Harpsichord",
+        "Clavinet",
+        "Celesta",
+        "Glockenspiel",
+        "Music Box",
+        "Vibraphone",
+        "Marimba",
+        "Xylophone",
+        "Tubular Bells",
+        "Dulcimer",
+        "Drawbar Organ",
+        "Percussive Organ",
+        "Rock Organ",
+        "Church Organ",
+        "Reed Organ",
+        "Accordion",
+        "Harmonica",
+        "Tango Accordion",
+        "Nylon Guitar",
+        "Steel Guitar",
+        "Jazz Guitar",
+        "Electric Guitar",
+        "Muted Guitar",
+        "Overdriven Guitar",
+        "Distortion Guitar",
+        "Guitar Harmonics",
+        "Acoustic Bass",
+        "Finger Bass",
+        "Pick Bass",
+        "Fretless Bass",
+        "Slap Bass 1",
+        "Slap Bass 2",
+        "Synth Bass 1",
+        "Synth Bass 2",
+        "Violin",
+        "Viola",
+        "Cello",
+        "Contrabass",
+        "Tremolo Strings",
+        "Pizzicato Strings",
+        "Orchestral Harp",
+        "Timpani",
+        "Strings",
+        "Slow Strings",
+        "Synth Strings 1",
+        "Synth Strings 2",
+        "Choir Aahs",
+        "Voice Oohs",
+        "Synth Choir",
+        "Orchestra Hit",
+        "Trumpet",
+        "Trombone",
+        "Tuba",
+        "Muted Trumpet",
+        "French Horn",
+        "Brass Section",
+        "Synth Brass 1",
+        "Synth Brass 2",
+        "Soprano Sax",
+        "Alto Sax",
+        "Tenor Sax",
+        "Baritone Sax",
+        "Oboe",
+        "English Horn",
+        "Bassoon",
+        "Clarinet",
+        "Piccolo",
+        "Flute",
+        "Recorder",
+        "Pan Flute",
+        "Bottle Blow",
+        "Shakuhachi",
+        "Whistle",
+        "Ocarina",
+        "Square Lead",
+        "Saw Lead",
+        "Calliope Lead",
+        "Chiff Lead",
+        "Charang Lead",
+        "Voice Lead",
+        "Fifths Lead",
+        "Bass Lead",
+        "New Age Pad",
+        "Warm Pad",
+        "Polysynth Pad",
+        "Choir Pad",
+        "Bowed Pad",
+        "Metallic Pad",
+        "Halo Pad",
+        "Sweep Pad",
+        "Ice Rain",
+        "Soundtrack",
+        "Crystal",
+        "Atmosphere",
+        "Brightness",
+        "Goblins",
+        "Echoes",
+        "Sci-Fi",
+        "Sitar",
+        "Banjo",
+        "Shamisen",
+        "Koto",
+        "Kalimba",
+        "Bagpipe",
+        "Fiddle",
+        "Shanai",
+        "Tinkle Bell",
+        "Agogo",
+        "Steel Drums",
+        "Woodblock",
+        "Taiko Drum",
+        "Melodic Tom",
+        "Synth Drum",
+        "Reverse Cymbal",
+        "Guitar Fret Noise",
+        "Breath Noise",
+        "Seashore",
+        "Bird Tweet",
+        "Telephone Ring",
+        "Helicopter",
+        "Applause",
+        "Gunshot",
+    ];
+    NAMES[usize::from(program.min(127))]
 }
 
 #[cfg(test)]
@@ -223,6 +418,65 @@ pub(crate) mod tests {
             0x00, 0x99, 38, 100, // ch 10: drum on
             0x81, 0x40, 0x89, 38, 0, // after 192 ticks: drum off
             0x00, 0xff, 0x2f, 0x00, // end of track
+        ]
+    }
+
+    /// A drum note on the unnamed part, then a track that says its name,
+    /// its instrument, its volume and pan, and the file's tempo, and plays
+    /// one note. Two MIDI channels, so the import opens both.
+    pub fn named_track() -> Vec<u8> {
+        let name = b"Melody";
+        vec![
+            0x00,
+            0x99,
+            38,
+            100, // ch 10: drum on (before the track name)
+            0x81,
+            0x40,
+            0x89,
+            38,
+            0, // after 192 ticks: drum off
+            0x00,
+            0xff,
+            0x51,
+            0x03,
+            0x07,
+            0xa1,
+            0x20, // tempo 500000 µs → 120 BPM
+            0x00,
+            0xff,
+            0x03,
+            name.len() as u8,
+            name[0],
+            name[1],
+            name[2],
+            name[3],
+            name[4],
+            name[5], // track name "Melody"
+            0x00,
+            0xc0,
+            40, // program 40: Violin
+            0x00,
+            0xb0,
+            7,
+            127, // channel volume full
+            0x00,
+            0xb0,
+            10,
+            127, // pan hard right
+            0x00,
+            0x90,
+            60,
+            100, // C on
+            0x81,
+            0x40,
+            0x80,
+            60,
+            0, // after 192 ticks: C off
+            0x00,
+            0xff,
+            0x2f,
+            0x00, // end of track
         ]
     }
 
