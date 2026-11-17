@@ -2893,6 +2893,12 @@ fn a_long_soundfont_note_sustains_over_its_loop() {
 #[test]
 fn a_bend_during_a_sustained_note_bends_it() {
     let font = std::env::temp_dir().join("probe-timgm.sf2");
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../musiccraft-default-soundfont/assets/TimGM6mb.sf2"),
+        &font,
+    )
+    .unwrap();
     let font_path = font.display().to_string();
     let mut mid = b"MThd".to_vec();
     mid.extend(6_u32.to_be_bytes());
