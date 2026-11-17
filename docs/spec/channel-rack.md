@@ -374,14 +374,16 @@ Out channels voice their own notes and are never cut.
 
 ## Soundfonts
 
-- `channel.add_soundfont <file.sf2> [preset] [name]` reads a SoundFont 2
-  (`.sf2`) or 3 (`.sf3`) file and adds a zone sampler whose zones are the
-  chosen preset's (1-based, default 1), named after the preset unless a
-  `name` is given.
-- `channel.load_soundfont <channel> <file.sf2> [preset]` replaces a zone
-  sampler's zones the same way; `soundfont.presets <file.sf2>` lists a
-  file's presets as `index bank:program name` (not undoable, changes
-  nothing).
+- `channel.add_soundfont <file.sf2|builtin> [preset] [name]` reads a
+  SoundFont 2 (`.sf2`) or 3 (`.sf3`) file and adds a zone sampler whose
+  zones are the chosen preset's (1-based, default 1), named after the
+  preset unless a `name` is given. `builtin` is the app's bundled General
+  MIDI soundfont (TimGM6mb: 128 melodic presets and eight percussion
+  kits), also in **Add → More instruments → Built-in soundfont (GM)**.
+- `channel.load_soundfont <channel> <file.sf2|builtin> [preset]` replaces a
+  zone sampler's zones the same way; `soundfont.presets <file.sf2|builtin>`
+  lists a file's presets as `index bank:program name` (not undoable,
+  changes nothing).
 - A preset's zones keep the SoundFont's key ranges, velocity ranges and
   tuning (root key minus coarse and fine tune, rounded to a whole
   semitone). Each zone's sample is a `soundfont:<file>#<sample index>`
@@ -390,6 +392,10 @@ Out channels voice their own notes and are never cut.
   `musiccraft-paths` resolves the file part like any sample path.
 - Stereo samples play as two-zone pairs linked by the SoundFont's sample
   link; `.sf3` samples (Ogg Vorbis) decode through the same path as PCM.
+- MIDI import picks a project's soundfont up: a General MIDI file's parts
+  play their own bank/program presets (the drum channel the bank 128 kit)
+  instead of stand-in synths, and falls back to the bundled TimGM6mb when
+  nothing is loaded (`docs/spec/piano-roll.md`, "MIDI file import").
 - Not in the first version: sample looping, envelopes, LFOs, pan and
   attenuation, and the keynum/velocity tuning and filtering generators
   (a drum preset's pitches follow the keys as written).

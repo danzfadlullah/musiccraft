@@ -675,6 +675,12 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
     for (midi_channel, note) in imported {
         groups.entry(midi_channel).or_default().push(note);
     }
+    // The file's General MIDI instruments come from a soundfont: one already
+    // loaded in the project (a zone sampler's `soundfont:` samples), or the
+    // app's bundled one. Each part then plays its own bank/program preset,
+    // like a GM player. Without a soundfont the built-in synths stand in,
+    // named after the GM program.
+    let gm = super::soundfont::loaded_font(project).or_else(super::soundfont::default_font);
     let suffix = match sig {
         Some(sig) => format!(", pattern in {sig}"),
         None => String::new(),
@@ -701,9 +707,10 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
         .to_owned();
     let new_channels = groups.len();
     let mut inverses = Vec::new();
+    let mut from_font = 0usize;
     for (midi_channel, notes) in groups {
         let info = file.parts.get(&midi_channel).cloned().unwrap_or_default();
-        let name = info
+        let mut name = info
             .name
             .or_else(|| {
                 (midi_channel != 9)
@@ -718,8 +725,18 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
                     format!("{stem} {}", midi_channel + 1)
                 }
             });
+        let mut instrument = Instrument::Synth;
+        if let Some((path, font)) = gm.as_ref() {
+            if let Some((preset, zones)) =
+                super::soundfont::gm_preset(font, path, midi_channel, info.program)
+            {
+                name = preset;
+                instrument = Instrument::Zones { zones };
+                from_font += 1;
+            }
+        }
         let id = ChannelId(project.alloc_id());
-        let mut channel = Channel::new(id, name, Instrument::Synth);
+        let mut channel = Channel::new(id, name, instrument);
         if let Some(volume) = info.volume {
             channel.volume = (f32::from(volume) / 127.0).powi(2);
         }
@@ -740,8 +757,13 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
     inverses.reverse();
     inverses.extend(tempo_inverse);
     inverses.extend(meter_inverse);
+    let mut message = format!("imported {count} notes into {new_channels} new channels");
+    if from_font > 0 {
+        let (_, font) = gm.as_ref().expect("a channel plays the soundfont");
+        message.push_str(&format!(" with {}'s instruments", font.name()));
+    }
     Ok(Outcome::undoable(
-        format!("imported {count} notes into {new_channels} new channels{suffix}"),
+        format!("{message}{suffix}"),
         batch(inverses),
     ))
 }

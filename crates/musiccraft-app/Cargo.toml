@@ -16,6 +16,7 @@ musiccraft-audio.workspace = true
 musiccraft-cli.workspace = true
 musiccraft-mcp.workspace = true
 musiccraft-commands.workspace = true
+musiccraft-default-soundfont.workspace = true
 musiccraft-dsp.workspace = true
 musiccraft-paths.workspace = true
 musiccraft-engine.workspace = true

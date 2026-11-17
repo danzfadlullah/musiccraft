@@ -1,0 +1,15 @@
+[package]
+name = "musiccraft-default-soundfont"
+description = "MusicCraft's bundled General MIDI soundfont (TimGM6mb), installed into the app's folders"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+musiccraft-soundfont.workspace = true
+[lints]
+workspace = true

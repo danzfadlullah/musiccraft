@@ -147,6 +147,7 @@ fn add_menu(ui: &mut egui::Ui, frame: &Frame<'_>, actions: &mut Vec<Action>) {
                 ("Zone sampler", "channel.add_zones"),
                 ("Channel stack", "channel.add_layer"),
                 ("MIDI output", "channel.add_midi_out"),
+                ("Built-in soundfont (GM)", "channel.add_soundfont builtin"),
                 ("Soundfont (SF2/SF3)", "ui.add_soundfont"),
             ] {
                 if ui.button(label).clicked() {

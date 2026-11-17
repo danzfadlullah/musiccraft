@@ -169,6 +169,24 @@ pub fn configure(config: PathConfig) {
     }
 }
 
+/// The app's bundled General MIDI soundfont this session, extracted to a real
+/// file at startup (the sample cache plays `soundfont:` samples from a file
+/// path). Set once the app knows its folders; `None` in tools and tests.
+static BUNDLED_SOUND_FONT: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Remembers where the app's bundled soundfont is installed this session.
+pub fn set_bundled_soundfont(path: PathBuf) {
+    if let Ok(mut slot) = BUNDLED_SOUND_FONT.lock() {
+        *slot = Some(path);
+    }
+}
+
+/// Where the app's bundled soundfont is installed this session, if at all.
+#[must_use]
+pub fn bundled_soundfont() -> Option<PathBuf> {
+    BUNDLED_SOUND_FONT.lock().ok().and_then(|slot| slot.clone())
+}
+
 /// The current configuration and its generation; detected on first use.
 #[must_use]
 pub fn current() -> (u64, PathConfig) {

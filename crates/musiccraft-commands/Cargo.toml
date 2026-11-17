@@ -21,5 +21,8 @@ serde.workspace = true
 musiccraft-paths.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+musiccraft-default-soundfont.workspace = true
+
 [lints]
 workspace = true

@@ -222,6 +222,23 @@ fn overview(buffer: &musiccraft_dsp::SampleBuffer, points: usize) -> Vec<(f32, f
 }
 
 /// A new project with a few drum channels, ready to program.
+/// Extracts the bundled General MIDI soundfont next to the app's settings
+/// (Android) or in the user's data folder (desktop) and registers it, so
+/// MIDI import plays the file's own instruments and `builtin` names the
+/// soundfont in the soundfont commands.
+fn install_default_soundfont() {
+    #[cfg(target_os = "android")]
+    let dir = crate::android::data_dir().map(|p| p.join("MusicCraft").join("soundfonts"));
+    #[cfg(not(target_os = "android"))]
+    let dir = musiccraft_paths::data_dir().map(|p| p.join("soundfonts"));
+    if let Some(dir) = dir
+        && let Some(path) = musiccraft_default_soundfont::install(&dir)
+    {
+        musiccraft_paths::set_bundled_soundfont(path);
+        log("App: default soundfont installed");
+    }
+}
+
 fn starter_project() -> Project {
     let mut session = Session::new(Project::default(), musiccraft_cli::full_registry());
     for line in [
@@ -312,6 +329,7 @@ impl App {
         let scan_plugins = settings.scan_plugins_on_start;
         // Sample paths from Windows projects translate with these folders.
         musiccraft_paths::configure(settings.path_config());
+        install_default_soundfont();
         ctx.set_zoom_factor(settings.scale());
         if let Some(host) = musiccraft_cli::plugin_host() {
             host.set_extra_folders(settings.plugin_folders.clone());

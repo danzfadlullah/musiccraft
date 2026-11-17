@@ -33,6 +33,16 @@
   file's name and channel number; its last channel volume (`CC7`, square law)
   and pan (`CC10`) become the channel's volume and pan; the file's first
   tempo event sets the project's tempo. Undo restores the tempo too.
+- When the project already plays a soundfont (any zone sampler whose samples
+  come from a `soundfont:` file), each part becomes a zone sampler playing
+  its General MIDI preset from that soundfont: melodic channels play bank 0
+  program N from the part's last program change (default 0), the drum
+  channel 10 plays the bank 128 kit (falling back to the first percussion
+  bank, then the font's default preset). The channel is named after the
+  preset, so the file's own instruments play, not stand-in synths. When no
+  soundfont is loaded, the import uses the app's bundled General MIDI
+  soundfont (TimGM6mb) the same way; a project with no soundfont available
+  falls back to the built-in synths named after the GM program.
 
 ## Chords, scales and recording
 

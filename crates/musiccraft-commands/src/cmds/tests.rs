@@ -1738,6 +1738,47 @@ fn import_midi_opens_channels_in_an_empty_project() {
 }
 
 #[test]
+fn import_midi_plays_a_loaded_soundfonts_gm_presets() {
+    use crate::midi_file::tests::{smf, two_channel_track};
+    let dir = std::env::temp_dir().join(format!("musiccraft-cmds-gm-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let font = soundfont_file(&dir).to_string_lossy().into_owned();
+    let path = std::env::temp_dir().join(format!("musiccraft-gm-{}.mid", std::process::id()));
+    std::fs::write(&path, smf(192, &two_channel_track())).unwrap();
+
+    let mut s = session();
+    run(&mut s, &format!("channel.add_soundfont {font}"));
+    run(
+        &mut s,
+        &format!("note.import_midi 1 \"{}\"", path.display()),
+    );
+    // Both parts play the font's only preset (bank 0 program 0 "Grand"):
+    // the melody as bank 0 program 0, the drums as the percussion fallback.
+    let channels = &s.project().channels;
+    assert_eq!(channels.len(), 3);
+    for channel in &channels[1..] {
+        assert_eq!(channel.name, "Grand");
+        let Instrument::Zones { zones } = &channel.instrument else {
+            panic!("{} is not a zone sampler", channel.name);
+        };
+        assert_eq!(zones.len(), 1);
+        assert_eq!(zones[0].sample, format!("soundfont:{font}#0"));
+    }
+    run(&mut s, "edit.undo");
+    assert_eq!(s.project().channels.len(), 1);
+    std::fs::remove_file(path).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn soundfont_commands_refuse_builtin_when_it_is_not_installed() {
+    let mut s = session();
+    let err = fails(&mut s, "channel.add_soundfont builtin");
+    assert!(err.to_string().contains("built-in soundfont"), "{err}");
+}
+
+#[test]
 fn set_instrument_swaps_the_sound_and_keeps_the_channel() {
     let mut s = session();
     run(&mut s, "channel.add_synth Lead");
@@ -2958,4 +2999,27 @@ fn soundfont_commands_fill_zone_samplers() {
     assert_eq!(s.project().channels.len(), 2, "add_soundfont undid");
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn tmp_tim_font_parses() {
+    let font_path = "/tmp/TimGM6mb.sf2";
+    let Ok(_) = std::fs::metadata(font_path) else {
+        return;
+    };
+    let mut s = session();
+    let listed = s
+        .run_line(&format!("soundfont.presets {font_path}"))
+        .expect("presets");
+    let lines: Vec<&str> = listed.message.lines().collect();
+    println!("presets: {}", lines.len());
+    for line in lines.iter().take(5) {
+        println!("{line}");
+    }
+    for line in lines
+        .iter()
+        .filter(|l| l.split(' ').nth(1).unwrap_or("").starts_with("0:"))
+    {
+        println!("mel: {line}");
+    }
 }
