@@ -22,6 +22,11 @@
   Standard MIDI File (format 0 or 1; all tracks and MIDI channels) to one channel
   in the pattern. File ticks are scaled to 96 per beat. Notes left sounding at a
   track's end stop there. SMPTE-timed files are rejected. One undo step.
+- A file whose notes sound on several MIDI channels opens one new synth
+  channel per MIDI channel (named after the file and the channel number, so
+  every part keeps its own instrument like FL Studio's import) and puts each
+  part's notes on its channel; undo removes those channels again. A
+  single-channel file still joins the chosen channel.
 
 ## Chords, scales and recording
 

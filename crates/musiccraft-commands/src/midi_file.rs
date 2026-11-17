@@ -8,6 +8,8 @@ pub(crate) struct FileNote {
     pub length: u64,
     pub key: u8,
     pub velocity: u8,
+    /// The MIDI channel the note sounded on (0-15).
+    pub channel: u8,
 }
 
 /// Notes and the file's ticks per quarter note.
@@ -128,6 +130,7 @@ fn read_track(data: &[u8], notes: &mut Vec<FileNote>, sig: &mut FirstSig) -> Res
                                 length: (time - start).max(1),
                                 key,
                                 velocity,
+                                channel,
                             });
                         }
                     }
@@ -145,12 +148,13 @@ fn read_track(data: &[u8], notes: &mut Vec<FileNote>, sig: &mut FirstSig) -> Res
         }
     }
     // Notes still sounding at the end of the track stop there.
-    for (_, key, start, velocity) in open {
+    for (midi_channel, key, start, velocity) in open {
         notes.push(FileNote {
             start,
             length: (time - start).max(1),
             key,
             velocity,
+            channel: midi_channel,
         });
     }
     Ok(())
@@ -211,6 +215,17 @@ pub(crate) mod tests {
         out
     }
 
+    /// A note on channel 1 and one on the drum channel 10, in one track.
+    pub fn two_channel_track() -> Vec<u8> {
+        vec![
+            0x00, 0x90, 60, 100, // ch 1: C on
+            0x81, 0x40, 0x80, 60, 0, // after 192 ticks: C off
+            0x00, 0x99, 38, 100, // ch 10: drum on
+            0x81, 0x40, 0x89, 38, 0, // after 192 ticks: drum off
+            0x00, 0xff, 0x2f, 0x00, // end of track
+        ]
+    }
+
     /// C4 for one beat, then E4 and G4 together using running status and
     /// velocity-0 note-offs; a tempo meta event; and a sysex message.
     pub fn sample_track() -> Vec<u8> {
@@ -238,19 +253,22 @@ pub(crate) mod tests {
                     start: 0,
                     length: 192,
                     key: 60,
-                    velocity: 100
+                    velocity: 100,
+                    channel: 0,
                 },
                 FileNote {
                     start: 192,
                     length: 96,
                     key: 64,
-                    velocity: 90
+                    velocity: 90,
+                    channel: 0,
                 },
                 FileNote {
                     start: 192,
                     length: 96,
                     key: 67,
-                    velocity: 80
+                    velocity: 80,
+                    channel: 0,
                 },
             ]
         );

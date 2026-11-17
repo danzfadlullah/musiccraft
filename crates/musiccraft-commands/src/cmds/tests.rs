@@ -1648,6 +1648,50 @@ fn import_midi_converts_ticks_and_undoes() {
 }
 
 #[test]
+fn import_midi_opens_a_channel_per_midi_channel() {
+    use crate::midi_file::tests::{smf, two_channel_track};
+    let path = std::env::temp_dir().join(format!("musiccraft-parts-{}.mid", std::process::id()));
+    std::fs::write(&path, smf(192, &two_channel_track())).unwrap();
+    let mut s = session();
+    run(&mut s, "channel.add_synth");
+    run(
+        &mut s,
+        &format!("note.import_midi 1 \"{}\"", path.display()),
+    );
+    assert_eq!(s.project().channels.len(), 3);
+    assert!(
+        s.project().channels[1].name.ends_with(" 1"),
+        "{}",
+        s.project().channels[1].name
+    );
+    assert!(
+        s.project().channels[2].name.ends_with(" 10"),
+        "{}",
+        s.project().channels[2].name
+    );
+    let by_channel: Vec<(usize, Vec<u8>)> = (1..3)
+        .map(|c| {
+            let id = s.project().channels[c].id;
+            let mut keys: Vec<u8> = s
+                .project()
+                .current_pattern()
+                .notes
+                .iter()
+                .filter(|n| n.channel == id)
+                .map(|n| n.key)
+                .collect();
+            keys.sort_unstable();
+            (c, keys)
+        })
+        .collect();
+    assert_eq!(by_channel, [(1, vec![60]), (2, vec![38])]);
+    run(&mut s, "edit.undo");
+    assert_eq!(s.project().channels.len(), 1);
+    assert_eq!(s.project().current_pattern().notes.len(), 0);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn chords_add_stacked_notes() {
     let mut s = session();
     run(&mut s, "channel.add_synth");
@@ -2761,8 +2805,8 @@ fn soundfont_file(dir: &std::path::Path) -> std::path::PathBuf {
     let mut pbag = bag(0);
     pbag.extend(bag(2));
     chunk(&mut pdta, b"pbag", &pbag);
-    let mut pgen = pair(38, 0);
-    pgen.extend(pair(40, 36 | (84 << 8)));
+    let mut pgen = pair(41, 0);
+    pgen.extend(pair(43, 36 | (84 << 8)));
     chunk(&mut pdta, b"pgen", &pgen);
     let mut instrument = vec![0u8; 20];
     instrument[..5].copy_from_slice(b"Piano");
@@ -2772,9 +2816,9 @@ fn soundfont_file(dir: &std::path::Path) -> std::path::PathBuf {
     let mut ibag = bag(0);
     ibag.extend(bag(3));
     chunk(&mut pdta, b"ibag", &ibag);
-    let mut igen = pair(54, 0);
-    igen.extend(pair(59, 60));
-    igen.extend(pair(52, (-12i16) as u16));
+    let mut igen = pair(53, 0);
+    igen.extend(pair(58, 60));
+    igen.extend(pair(51, (-12i16) as u16));
     chunk(&mut pdta, b"igen", &igen);
     let mut sample = vec![0u8; 20];
     sample[..4].copy_from_slice(b"Tone");
