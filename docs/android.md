@@ -52,7 +52,10 @@ The app checks its own updates against this fork's rolling `android`
 pre-release: once at start-up and again from **Settings → Updates**. When a
 newer build is published there, a pop-up offers it wherever you are — with
 the changelog (the commits since the previous release, which CI writes into
-the release notes) — and the tab offers **Download and install**: the
+the release notes) — and the tab offers **Download and install**. The pop-up
+stays on screen for the whole install: the offer, the download's progress
+bar, a spinner while the installer opens and the result, so it no longer
+closes when you press **Download and install**. The
 APK streams down with a progress bar, lands in `Download/MusicCraft/` through
 MediaStore, and Android's installer opens to confirm the swap — the download
 finishes into the installer by itself, no file manager in between. Before it
@@ -64,8 +67,14 @@ opened (for example *install unknown apps* is off), the tab says where the
 APK copy is instead: `Android/data/io.github.bhimio1.musiccraft/files/
 MusicCraft/update/`, open it with a file manager.
 
+For the installer to be openable at all, the manifest declares a `<queries>`
+intent for `ACTION_VIEW` on the APK mime type: Android 11 and newer hide
+packages that are not declared, and without it opening the installer throws
+`ActivityNotFoundException` (which the log then names in full — JNI errors
+carry the Java exception's type and message).
+
 Both APK copies — the Downloads entry and the spare copy — carry the version
-in their name (`MusicCraft-update-0.6.0.apk`). Once an update has installed,
+in their name (`MusicCraft-update-0.7.0.apk`). Once an update has installed,
 the next start sweeps the spent ones out (its version is not newer than the
 one running; a download whose install was cancelled survives). **Settings →
 General** has the switch: *Delete the update APK after it installs*, on by

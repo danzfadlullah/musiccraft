@@ -52,6 +52,16 @@ max_sdk_version = 29
 # The in-app update check and APK download talk to the GitHub Releases API.
 name = "android.permission.INTERNET"
 
+# Android 11+ package visibility: without this declaration the app cannot
+# see the system package installer, so opening the downloaded APK with
+# ACTION_VIEW throws ActivityNotFoundException and the update never installs
+# (docs/android.md).
+[[package.metadata.android.queries.intent]]
+actions = ["android.intent.action.VIEW"]
+
+[[package.metadata.android.queries.intent.data]]
+mime_type = "application/vnd.android.package-archive"
+
 [package.metadata.android.application.activity]
 # The Java subclass that stows the SAF picker's answer for the native code.
 name = "io.github.bhimio1.musiccraft.MusicCraftActivity"

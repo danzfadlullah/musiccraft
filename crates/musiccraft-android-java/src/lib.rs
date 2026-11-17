@@ -17,7 +17,7 @@ use std::sync::OnceLock;
 
 use android_activity::AndroidApp;
 use jni::errors::Result as JniResult;
-use jni::objects::{JObject, JValueOwned};
+use jni::objects::{JObject, JString, JValueOwned};
 use jni::{JNIEnv, JavaVM};
 
 pub use install::{delete_downloaded_apk, downloaded_apk_names, install_apk};
@@ -58,12 +58,45 @@ pub(crate) fn with_env<T>(
 }
 
 /// Maps a JNI error to a message and clears any pending Java exception, so a
-/// failure cannot poison the next JNI call.
+/// failure cannot poison the next JNI call. A thrown exception's type and
+/// message join the error, so the log names the real cause (for example
+/// ActivityNotFoundException when the installer cannot be opened).
 pub(crate) fn checked<T>(env: &mut JNIEnv, result: JniResult<T>) -> Result<T, String> {
     result.map_err(|e| {
-        let _ = env.exception_clear();
-        format!("JNI: {e}")
+        let detail = exception_message(env);
+        format!("JNI: {e}{detail}")
     })
+}
+
+/// Reads and clears a pending Java exception, as " (Type: message)".
+fn exception_message(env: &mut JNIEnv) -> String {
+    let throwable = match env.exception_occurred() {
+        Ok(throwable) => throwable,
+        Err(_) => {
+            let _ = env.exception_clear();
+            return String::new();
+        }
+    };
+    let _ = env.exception_clear();
+    if throwable.as_raw().is_null() {
+        return String::new();
+    }
+    let object = JObject::from(throwable);
+    let text = env
+        .call_method(&object, "toString", "()Ljava/lang/String;", &[])
+        .and_then(|value| value.l());
+    let text = match text {
+        Ok(string) => {
+            let string = JString::from(string);
+            env.get_string(&string)
+                .map(|text| text.to_string_lossy().into_owned())
+        }
+        Err(_) => Err(jni::errors::Error::JniCall(jni::errors::JniError::Unknown)),
+    };
+    match text {
+        Ok(text) => format!(" ({text})"),
+        Err(_) => " (a Java exception was thrown)".to_owned(),
+    }
 }
 
 /// Pulls the object out of a JNI result, clearing any pending Java exception
