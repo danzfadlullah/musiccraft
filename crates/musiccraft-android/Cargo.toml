@@ -52,15 +52,13 @@ max_sdk_version = 29
 # The in-app update check and APK download talk to the GitHub Releases API.
 name = "android.permission.INTERNET"
 
-# Android 11+ package visibility: without this declaration the app cannot
-# see the system package installer, so opening the downloaded APK with
-# ACTION_VIEW throws ActivityNotFoundException and the update never installs
+[[package.metadata.android.uses_permission]]
+# The in-app update streams the downloaded APK into a `PackageInstaller`
+# session (crates/musiccraft-android-java/src/install.rs). Without this
+# permission Android 8 and newer refuse to show the installer's
+# confirmation dialog — the session commits but nothing appears
 # (docs/android.md).
-[[package.metadata.android.queries.intent]]
-actions = ["android.intent.action.VIEW"]
-
-[[package.metadata.android.queries.intent.data]]
-mime_type = "application/vnd.android.package-archive"
+name = "android.permission.REQUEST_INSTALL_PACKAGES"
 
 [package.metadata.android.application.activity]
 # The Java subclass that stows the SAF picker's answer for the native code.

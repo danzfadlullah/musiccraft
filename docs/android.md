@@ -12,7 +12,7 @@ link from API 29.
 | Piece | What it does |
 | --- | --- |
 | `crates/musiccraft-android` | The `cdylib` Android app: exports `android_main` and hands the `AndroidApp` handle to `musiccraft_app::run_android`. Built with [cargo-apk](https://github.com/rust-mobile/cargo-apk); its `[package.metadata.android]` block lives in that crate's `Cargo.toml`. |
-| `crates/musiccraft-android-java` | The pieces that must talk to Java through JNI: hands a downloaded APK to the system installer (writes it into `Download/MusicCraft/` through MediaStore and opens an `ACTION_VIEW` install intent), sweeps out a spent update's APKs, and drives the system's SAF file picker. |
+| `crates/musiccraft-android-java` | The pieces that must talk to Java through JNI: streams a downloaded APK into a `PackageInstaller` session and commits it, so the system installer opens, sweeps out a spent update's APKs, and drives the system's SAF file picker. |
 | `musiccraft_app::run_android` | The shared application with no command line: the activity's surface is the window, and the app's private storage stands in for the desktop config folder (`crates/musiccraft-app/src/android.rs`). |
 | Touch style | On Android the theme gets wider hit targets and spacing (`apply_touch_style`); egui turns touch events into pointer input, so taps, drags and long presses work everywhere the mouse does. The system's display density sets the UI scale. |
 | Screen | Landscape only (`sensorLandscape`: both landscape sides, following the sensor) and fullscreen: the activity sets `FLAG_FULLSCREEN | FLAG_LAYOUT_IN_SCREEN`, so the status bar stays out of the way. The system's gesture pill remains; that is up to the launcher. |
@@ -57,27 +57,32 @@ the release notes) — and the tab offers **Download and install**. The pop-up
 stays on screen for the whole install: the offer, the download's progress
 bar, a spinner while the installer opens and the result, so it no longer
 closes when you press **Download and install**. The
-APK streams down with a progress bar, lands in `Download/MusicCraft/` through
-MediaStore, and Android's installer opens to confirm the swap — the download
-finishes into the installer by itself, no file manager in between. Before it
-may install, the download's SHA-256 fingerprint must match the one GitHub
-reports for the release asset; a truncated or altered APK is refused with the
-two fingerprints in the log. The new build
-installs in place — same signature, no uninstall. If the installer cannot be
-opened (for example *install unknown apps* is off), the tab says where the
-APK copy is instead: `Android/data/io.github.bhimio1.musiccraft/files/
-MusicCraft/update/`, open it with a file manager.
+APK streams down with a progress bar and goes straight into a
+`PackageInstaller` session (crates/musiccraft-android-java/src/install.rs):
+the download finishes into the installer by itself, no file manager and no
+APK copy in Downloads in between. Before it may install, the download's
+SHA-256 fingerprint must match the one GitHub reports for the release asset;
+a truncated or altered APK is refused with the two fingerprints in the log.
+The new build
+installs in place — same signature, no uninstall.
 
-For the installer to be openable at all, the manifest declares a `<queries>`
-intent for `ACTION_VIEW` on the APK mime type: Android 11 and newer hide
-packages that are not declared, and without it opening the installer throws
-`ActivityNotFoundException` (which the log then names in full — JNI errors
-carry the Java exception's type and message).
+Two permissions make that work. The manifest declares
+`REQUEST_INSTALL_PACKAGES`: without it Android 8 and newer refuse to show
+the installer's confirmation dialog — the session commits but nothing
+appears, which is exactly the silent failure this replaced. And the user
+must allow the app once under **Install unknown apps** (Android opens that
+settings screen the first time an update installs; from then on the
+dialog asks *Do you want to update this application?* directly). If the
+installer cannot be opened all the same, the tab says where the APK copy is
+instead: `Android/data/io.github.bhimio1.musiccraft/files/MusicCraft/update/`,
+open it with a file manager.
 
-Both APK copies — the Downloads entry and the spare copy — carry the version
-in their name (`MusicCraft-update-0.10.3.apk`). Once an update has installed,
+The spare copy in the app's storage carries the version in its name
+(`MusicCraft-update-0.10.4.apk`). Once an update has installed,
 the next start sweeps the spent ones out (its version is not newer than the
-one running; a download whose install was cancelled survives). **Settings →
+one running; a download whose install was cancelled survives) — both the
+spare copies and the `Download/MusicCraft/` entries older versions left
+behind. **Settings →
 General** has the switch: *Delete the update APK after it installs*, on by
 default.
 

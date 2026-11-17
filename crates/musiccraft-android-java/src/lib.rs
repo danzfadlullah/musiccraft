@@ -1,7 +1,8 @@
 //! The pieces of MusicCraft on Android that must talk to Java, through JNI:
 //!
-//! - `install_apk` hands a downloaded APK to the system installer (the
-//!   in-app update), and
+//! - `install_apk` streams a downloaded APK into a `PackageInstaller`
+//!   session and commits it, so the system installer opens (the in-app
+//!   update), and
 //! - `pick` opens the system's SAF file picker and turns what it returns
 //!   into cache files the app reads and writes like any other.
 //!
@@ -20,9 +21,7 @@ use jni::errors::Result as JniResult;
 use jni::objects::{JObject, JString, JValueOwned};
 use jni::{JNIEnv, JavaVM};
 
-pub use install::{
-    delete_downloaded_apk, downloaded_apk_names, open_installer, save_apk_to_downloads,
-};
+pub use install::{delete_downloaded_apk, downloaded_apk_names, install_apk};
 pub use saf::{SafMode, SafRequest, pick, sync};
 
 static APP: OnceLock<AndroidApp> = OnceLock::new();

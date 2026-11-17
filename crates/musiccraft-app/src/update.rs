@@ -163,21 +163,8 @@ impl Updater {
             let installer = crate::android::app_handle().and_then(|app| {
                 // Each step logs: the log file survives a crash, so it names
                 // the step that took the app down.
-                let uri =
-                    match musiccraft_android_java::save_apk_to_downloads(&app, &bytes, &version) {
-                        Ok(uri) => {
-                            crate::log("update: the APK is in the Downloads folder");
-                            uri
-                        }
-                        Err(err) => {
-                            crate::log(&format!(
-                                "update: the APK could not be saved for the installer: {err}"
-                            ));
-                            return None;
-                        }
-                    };
-                crate::log("update: opening the installer");
-                match musiccraft_android_java::open_installer(&app, &uri) {
+                crate::log("update: handing the APK to the system installer");
+                match musiccraft_android_java::install_apk(&app, &bytes, &version) {
                     Ok(()) => {
                         crate::log("update: the system installer is open");
                         Some(())
@@ -189,23 +176,17 @@ impl Updater {
                 }
             });
             let note = match installer {
-                Some(()) => {
-                    crate::log("update: the system installer is open");
-                    String::new()
-                }
-                None => {
-                    crate::log("update: the installer did not open");
-                    match fallback_path(&version) {
-                        Some(path) => format!(
-                            "The installer did not open; the APK is at {} — \
-                             open it with a file manager to install.",
-                            path.display()
-                        ),
-                        None => "The installer did not open and no copy of the APK \
-                             could be kept; check for the update again."
-                            .to_owned(),
-                    }
-                }
+                Some(()) => String::new(),
+                None => match fallback_path(&version) {
+                    Some(path) => format!(
+                        "The installer did not open; the APK is at {} — \
+                         open it with a file manager to install.",
+                        path.display()
+                    ),
+                    None => "The installer did not open and no copy of the APK \
+                         could be kept; check for the update again."
+                        .to_owned(),
+                },
             };
             *self.status.lock().unwrap() = UpdateStatus::Ready { note };
             self.ctx.request_repaint();

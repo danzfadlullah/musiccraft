@@ -1,73 +1,65 @@
-//! Hands an APK held in memory to the Android system installer: the bytes go
-//! into `Download/MusicCraft/` through MediaStore, and the resulting content
-//! URI opens in an `ACTION_VIEW` install intent. This is what makes the
-//! in-app update possible without a file manager.
+//! Hands an APK held in memory to the Android system installer through the
+//! `PackageInstaller` session API: the bytes stream into an install session
+//! and `commit` makes Android show its own confirmation dialog ("Do you want
+//! to update this application?"). This is what makes the in-app update
+//! possible without a file manager. The manifest must declare
+//! `REQUEST_INSTALL_PACKAGES`: without it Android 8 and newer refuse to show
+//! the dialog, silently.
 
 use android_activity::AndroidApp;
-use jni::objects::{JByteArray, JObject, JString, JValue};
+use jni::objects::{JByteArray, JObject, JValue};
 use jni::{JNIEnv, JavaVM};
 
 use crate::{checked, take, take_bool, take_int, with_env};
 
-const MIME_APK: &str = "application/vnd.android.package-archive";
-/// The update APKs' name prefix in `Download/MusicCraft/`, completed with
-/// the version (`MusicCraft-update-0.6.0.apk`), so the cleanup after a
-/// finished update knows which files are spent.
+/// The update APKs' name prefix, completed with the version
+/// (`MusicCraft-update-0.6.0.apk`), used for the install session's stream
+/// name and for the spare copies in `Download/MusicCraft/` that older
+/// versions left behind, so the cleanup after a finished update knows which
+/// files are spent.
 const APK_PREFIX: &str = "MusicCraft-update-";
-const FOLDER: &str = "Download/MusicCraft";
-/// FLAG_ACTIVITY_NEW_TASK (required when starting from a non-activity
-/// context stack) | FLAG_GRANT_READ_URI_PERMISSION (the installer may read
-/// our MediaStore entry).
-const INTENT_FLAGS: i32 = 0x1000_0000 | 0x0000_0001;
+/// `PackageInstaller.SessionParams.MODE_FULL_INSTALL`.
+const MODE_FULL_INSTALL: i32 = 1;
+/// `PendingIntent.FLAG_IMMUTABLE`: required to name mutability explicitly
+/// from Android 12 on, and the installer's answer never needs to change.
+const FLAG_IMMUTABLE: i32 = 0x0400_0000;
+/// `PackageInstaller.ACTION_CONFIRM_INSTALL`: the intent the session's
+/// result is delivered through.
+const ACTION_CONFIRM_INSTALL: &str = "android.content.pm.action.CONFIRM_INSTALL";
+/// How long to wait for the Java main thread to run the install (the 30 MB
+/// stream write included) before giving up on it.
+const INSTALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// Saves `bytes` as an APK in the public Downloads folder through MediaStore
-/// and returns its content URI as text. Runs on the caller's thread — the
-/// same MediaStore pattern the SAF picker uses there. Hand the URI to
-/// [`open_installer`] next: launching the installer must run on the Java
-/// main thread, so it is a separate step.
+/// Streams `bytes` into a `PackageInstaller` session and commits it, so
+/// Android opens its install confirmation for the update. The whole session
+/// runs on the Java main thread — like the SAF picker's
+/// `startActivityForResult`, session work from the app's own thread can take
+/// the process down — and this waits (up to 15 s) for it to finish. The
+/// dialog itself appears once `commit` is through; this returns before the
+/// user answers it.
 ///
 /// Errors are plain strings: they go straight to the update panel.
-pub fn save_apk_to_downloads(
-    app: &AndroidApp,
-    bytes: &[u8],
-    version: &str,
-) -> Result<String, String> {
-    unsafe {
-        let vm = JavaVM::from_raw(app.vm_as_ptr().cast())
-            .map_err(|e| format!("cannot reach the JVM: {e}"))?;
-        let mut env = vm
-            .attach_current_thread()
-            .map_err(|e| format!("cannot attach to the JVM: {e}"))?;
-        let activity = JObject::from_raw(app.activity_as_ptr().cast());
-        let uri = save_to_downloads(&mut env, &activity, bytes, version)?;
-        uri_text(&mut env, &uri)
-    }
-}
-
-/// Opens the system installer for the APK at the `content://` URI `uri`
-/// (what [`save_apk_to_downloads`] returned). `startActivity` must run on
-/// the Java main thread — the SAF picker runs its `startActivityForResult`
-/// there too; from the app's own thread the launch can take the process
-/// down. The launch is sent to the main thread and this waits (up to 15 s)
-/// for its result.
-pub fn open_installer(app: &AndroidApp, uri: &str) -> Result<(), String> {
+pub fn install_apk(app: &AndroidApp, bytes: &[u8], version: &str) -> Result<(), String> {
     let (sender, receiver) = std::sync::mpsc::channel();
     let app = app.clone();
-    let uri = uri.to_owned();
+    let bytes = bytes.to_vec();
+    let version = version.to_owned();
     app.run_on_java_main_thread(Box::new(move || {
-        let result = with_env(|env, activity| open(env, activity, &uri));
+        let result = with_env(|env, activity| install(env, activity, &bytes, &version));
         if let Err(err) = &result {
             crate::log(&format!("installer: {err}"));
         }
         let _ = sender.send(result);
     }));
     receiver
-        .recv_timeout(std::time::Duration::from_secs(15))
+        .recv_timeout(INSTALL_TIMEOUT)
         .unwrap_or_else(|_| Err("the installer did not answer".to_owned()))
 }
 
 /// The names of the update APKs sitting in `Download/MusicCraft/`, for the
-/// cleanup that runs once an update has installed.
+/// cleanup that runs once an update has installed. Older versions staged
+/// their update APKs there; the session API streams straight into the
+/// installer, so new downloads leave nothing behind.
 pub fn downloaded_apk_names(app: &AndroidApp) -> Result<Vec<String>, String> {
     unsafe {
         let vm = JavaVM::from_raw(app.vm_as_ptr().cast())
@@ -93,144 +85,132 @@ pub fn delete_downloaded_apk(app: &AndroidApp, name: &str) -> Result<(), String>
     }
 }
 
-/// Opens the system installer for the APK at `uri` (`content://…` as text).
-/// Runs on the Java main thread (see [`open_installer`]).
-fn open(env: &mut JNIEnv<'_>, activity: &JObject, uri: &str) -> Result<(), String> {
-    let action_view = env.get_static_field(
-        "android/content/Intent",
-        "ACTION_VIEW",
-        "Ljava/lang/String;",
-    );
-    let action = take(env, action_view)?;
-    let mime_call = env.new_string(MIME_APK);
-    let mime: JObject = checked(env, mime_call)?.into();
-    let uri_call = env.new_string(uri);
-    let uri: JObject = checked(env, uri_call)?.into();
-    let parse = env.call_static_method(
-        "android/net/Uri",
-        "parse",
-        "(Ljava/lang/String;)Landroid/net/Uri;",
-        &[JValue::Object(&uri)],
-    );
-    let parsed = take(env, parse)?;
-    // A plain action intent: the data and type are set below, so the
-    // constructor never sees a `String` where a `Uri` belongs.
-    let new_intent = env.new_object(
-        "android/content/Intent",
-        "(Ljava/lang/String;)V",
-        &[JValue::Object(&action)],
-    );
-    let intent = checked(env, new_intent)?;
-    let set_data = env.call_method(
-        &intent,
-        "setDataAndType",
-        "(Landroid/net/Uri;Ljava/lang/String;)Landroid/content/Intent;",
-        &[JValue::Object(&parsed), JValue::Object(&mime)],
-    );
-    checked(env, set_data)?;
-    let add_flags = env.call_method(
-        &intent,
-        "addFlags",
-        "(I)Landroid/content/Intent;",
-        &[JValue::Int(INTENT_FLAGS)],
-    );
-    checked(env, add_flags)?;
-    let start = env.call_method(
-        activity,
-        "startActivity",
-        "(Landroid/content/Intent;)V",
-        &[JValue::Object(&intent)],
-    );
-    checked(env, start)?;
-    Ok(())
-}
-
-/// Writes the bytes into `Download/MusicCraft/` via MediaStore and returns
-/// the content URI. MediaStore (not a plain file path) because scoped
-/// storage only lets a `content://` URI be handed to another app.
-fn save_to_downloads<'local>(
-    env: &mut JNIEnv<'local>,
+/// The install session: `PackageInstaller` → session parameters → session →
+/// the APK's bytes → `commit`. Runs on the Java main thread (see
+/// [`install_apk`]). Every step is checked, so a failure names the step.
+fn install(
+    env: &mut JNIEnv<'_>,
     activity: &JObject,
     bytes: &[u8],
     version: &str,
-) -> Result<JObject<'local>, String> {
-    let new_values = env.new_object("android/content/ContentValues", "()V", &[]);
-    let values = checked(env, new_values)?;
-    let name = format!("{APK_PREFIX}{version}.apk");
-    put_string(env, &values, "_display_name", &name)?;
-    put_string(env, &values, "mime_type", MIME_APK)?;
-    put_string(env, &values, "relative_path", FOLDER)?;
-    let downloads_uri = env.get_static_field(
-        "android/provider/MediaStore$Downloads",
-        "EXTERNAL_CONTENT_URI",
-        "Landroid/net/Uri;",
-    );
-    let downloads = take(env, downloads_uri)?;
-    let resolver_call = env.call_method(
+) -> Result<(), String> {
+    let manager_call = env.call_method(
         activity,
-        "getContentResolver",
-        "()Landroid/content/ContentResolver;",
+        "getPackageManager",
+        "()Landroid/content/pm/PackageManager;",
         &[],
     );
-    let resolver = take(env, resolver_call)?;
-    let insert = env.call_method(
-        &resolver,
-        "insert",
-        "(Landroid/net/Uri;Landroid/content/ContentValues;)Landroid/net/Uri;",
-        &[JValue::Object(&downloads), JValue::Object(&values)],
+    let manager = take(env, manager_call)?;
+    let installer_call = env.call_method(
+        &manager,
+        "getPackageInstaller",
+        "()Landroid/content/pm/PackageInstaller;",
+        &[],
     );
-    let uri = take(env, insert)?;
-    if uri.as_raw().is_null() {
-        return Err("MediaStore refused the download entry".to_owned());
+    let installer = take(env, installer_call)?;
+    let params = env.new_object(
+        "android/content/pm/PackageInstaller$SessionParams",
+        "(I)V",
+        &[JValue::Int(MODE_FULL_INSTALL)],
+    );
+    let params = checked(env, params)?;
+    let create = env.call_method(
+        &installer,
+        "createSession",
+        "(Landroid/content/pm/PackageInstaller$SessionParams;)I",
+        &[JValue::Object(&params)],
+    );
+    let session_id = take_int(env, create)?;
+    let open = env.call_method(
+        &installer,
+        "openSession",
+        "(I)Landroid/content/pm/PackageInstaller$Session;",
+        &[JValue::Int(session_id)],
+    );
+    let session = take(env, open)?;
+    if let Err(err) = write_apk(env, &session, bytes, version) {
+        let abandon = env.call_method(&session, "abandon", "()V", &[]);
+        let _ = checked(env, abandon);
+        return Err(err);
     }
+    commit(env, activity, &session)
+}
+
+/// Writes the APK's bytes into the session's stream. The stream is claimed
+/// with the update's name, so a failed session is recognizable in the
+/// installer's own records.
+fn write_apk(
+    env: &mut JNIEnv<'_>,
+    session: &JObject,
+    bytes: &[u8],
+    version: &str,
+) -> Result<(), String> {
+    let name = format!("{APK_PREFIX}{version}.apk");
+    let name_call = env.new_string(name);
+    let name: JObject = checked(env, name_call)?.into();
+    let open_write = env.call_method(
+        session,
+        "openWrite",
+        "(Ljava/lang/String;JJ)Ljava/io/OutputStream;",
+        &[
+            JValue::Object(&name),
+            JValue::Long(0),
+            JValue::Long(bytes.len() as i64),
+        ],
+    );
+    let stream = take(env, open_write)?;
     let data_call = env.byte_array_from_slice(bytes);
     let data: JByteArray = checked(env, data_call)?;
-    let open = env.call_method(
-        &resolver,
-        "openOutputStream",
-        "(Landroid/net/Uri;)Ljava/io/OutputStream;",
-        &[JValue::Object(&uri)],
-    );
-    let stream = take(env, open)?;
     let write = env.call_method(&stream, "write", "([B)V", &[JValue::Object(&data)]);
     checked(env, write)?;
     let flush = env.call_method(&stream, "flush", "()V", &[]);
     checked(env, flush)?;
     let close = env.call_method(&stream, "close", "()V", &[]);
     checked(env, close)?;
-    Ok(uri)
-}
-
-fn put_string<'local>(
-    env: &mut JNIEnv<'local>,
-    values: &JObject,
-    key: &str,
-    value: &str,
-) -> Result<(), String> {
-    let key_call = env.new_string(key);
-    let key: JObject = checked(env, key_call)?.into();
-    let value_call = env.new_string(value);
-    let value: JObject = checked(env, value_call)?.into();
-    let put = env.call_method(
-        values,
-        "put",
-        // ContentValues.put returns void, not boolean.
-        "(Ljava/lang/String;Ljava/lang/String;)V",
-        &[JValue::Object(&key), JValue::Object(&value)],
-    );
-    checked(env, put)?;
     Ok(())
 }
 
-/// A content URI as text, so it can cross to the Java main thread (local
-/// references cannot).
-fn uri_text(env: &mut JNIEnv<'_>, uri: &JObject) -> Result<String, String> {
-    let call = env.call_method(uri, "toString", "()Ljava/lang/String;", &[]);
-    let text = take(env, call)?;
-    let string = JString::from(text);
-    env.get_string(&string)
-        .map(|text| text.to_string_lossy().into_owned())
-        .map_err(|e| format!("JNI: {e}"))
+/// Commits the session with a `PendingIntent` for the result, which makes
+/// Android show the install confirmation. The session is closed afterwards —
+/// `commit` takes over from there.
+fn commit(env: &mut JNIEnv<'_>, activity: &JObject, session: &JObject) -> Result<(), String> {
+    let action_call = env.new_string(ACTION_CONFIRM_INSTALL);
+    let action: JObject = checked(env, action_call)?.into();
+    let new_intent = env.new_object(
+        "android/content/Intent",
+        "(Ljava/lang/String;)V",
+        &[JValue::Object(&action)],
+    );
+    let intent = checked(env, new_intent)?;
+    let pending = env.call_static_method(
+        "android/app/PendingIntent",
+        "getActivity",
+        "(Landroid/content/Context;ILandroid/content/Intent;I)Landroid/app/PendingIntent;",
+        &[
+            JValue::Object(activity),
+            JValue::Int(0),
+            JValue::Object(&intent),
+            JValue::Int(FLAG_IMMUTABLE),
+        ],
+    );
+    let pending = take(env, pending)?;
+    let sender = env.call_method(
+        &pending,
+        "getIntentSender",
+        "()Landroid/content/IntentSender;",
+        &[],
+    );
+    let sender = take(env, sender)?;
+    let send = env.call_method(
+        session,
+        "commit",
+        "(Landroid/content/IntentSender;)V",
+        &[JValue::Object(&sender)],
+    );
+    checked(env, send)?;
+    let close = env.call_method(session, "close", "()V", &[]);
+    checked(env, close)?;
+    Ok(())
 }
 
 /// The content resolver the activity's MediaStore calls go through.
@@ -308,7 +288,7 @@ fn names<'local>(env: &mut JNIEnv<'local>, activity: &JObject) -> Result<Vec<Str
         if name.as_raw().is_null() {
             continue;
         }
-        let jstring = JString::from(name);
+        let jstring = jni::objects::JString::from(name);
         let got = env.get_string(&jstring);
         let text = checked(env, got)?;
         found.push(text.to_string_lossy().into_owned());
