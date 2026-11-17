@@ -182,6 +182,12 @@ type LogSink = Box<dyn Fn(&str) + Send + Sync>;
 /// tools, lines are dropped.
 static LOG_SINK: Mutex<Option<LogSink>> = Mutex::new(None);
 
+/// The newest log lines, for the app's in-app log viewer (Options → Debug).
+static LOG_RING: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
+
+/// How many log lines the in-app viewer keeps.
+const LOG_RING_CAP: usize = 500;
+
 /// Installs the sink log lines go to. Called once from the app at startup.
 pub fn set_log_sink(sink: LogSink) {
     if let Ok(mut slot) = LOG_SINK.lock() {
@@ -189,13 +195,36 @@ pub fn set_log_sink(sink: LogSink) {
     }
 }
 
-/// A log line from the shared crates (menus, commands): reaches the app's
-/// log file when the app installed a sink, and is dropped otherwise.
+/// A log line from the shared crates (menus, commands): kept for the
+/// in-app log viewer, and handed to the app's log file when it installed a
+/// sink.
 pub fn log(message: &str) {
+    if let Ok(mut ring) = LOG_RING.lock() {
+        if ring.len() >= LOG_RING_CAP {
+            ring.pop_front();
+        }
+        ring.push_back(message.to_owned());
+    }
     if let Ok(slot) = LOG_SINK.lock() {
         if let Some(sink) = slot.as_ref() {
             sink(message);
         }
+    }
+}
+
+/// The newest log lines, oldest first.
+#[must_use]
+pub fn recent_logs() -> Vec<String> {
+    LOG_RING
+        .lock()
+        .map(|ring| ring.iter().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// Forgets the remembered log lines (the viewer's Clear button).
+pub fn clear_logs() {
+    if let Ok(mut ring) = LOG_RING.lock() {
+        ring.clear();
     }
 }
 

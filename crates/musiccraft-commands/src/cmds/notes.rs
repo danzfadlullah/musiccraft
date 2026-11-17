@@ -742,17 +742,20 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
                 }
             });
         let mut instrument = Instrument::Synth;
+        let mut drums = false;
         if let Some((path, font)) = gm.as_ref() {
-            if let Some((preset, zones)) =
+            if let Some((preset, zones, kit)) =
                 super::soundfont::gm_preset(font, path, midi_channel, info.program)
             {
                 name = preset;
                 instrument = Instrument::Zones { zones };
+                drums = kit;
                 from_font += 1;
             }
         }
         let id = ChannelId(project.alloc_id());
         let mut channel = Channel::new(id, name, instrument);
+        super::soundfont::set_one_shot(&mut channel, drums);
         if let Some(volume) = info.volume {
             channel.volume = (f32::from(volume) / 127.0).powi(2);
         }

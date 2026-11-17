@@ -407,13 +407,18 @@ Out channels voice their own notes and are never cut.
   reference the sample cache decodes out of the soundfont file itself, so
   a project keeps working without the soundfont's samples as loose files;
   `musiccraft-paths` resolves the file part like any sample path.
+- A melodic preset releases its notes at note-off, like a GM player; a
+  percussion preset (bank 128) plays through as a one-shot. A sample with
+  a sustain loop loops for as long as its note sounds, so sustained
+  instruments (strings, wind, organ) hold instead of running out of
+  sample.
 - Stereo samples play as two-zone pairs linked by the SoundFont's sample
   link; `.sf3` samples (Ogg Vorbis) decode through the same path as PCM.
 - MIDI import picks a project's soundfont up: a General MIDI file's parts
   play their own bank/program presets (the drum channel the bank 128 kit)
   instead of stand-in synths, and falls back to the bundled TimGM6mb when
   nothing is loaded (`docs/spec/piano-roll.md`, "MIDI file import").
-- Not in the first version: sample looping, envelopes, LFOs, pan and
+- Not in the first version: envelopes, LFOs, pan and
   attenuation, and the keynum/velocity tuning and filtering generators
   (a drum preset's pitches follow the keys as written).
 

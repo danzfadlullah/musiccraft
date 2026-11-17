@@ -226,6 +226,8 @@ impl Shared {
                         root: z.root,
                         vel_low: z.vel_low,
                         vel_high: z.vel_high,
+                        loop_start: 0,
+                        loop_end: 0,
                     })
                     .collect(),
             ),

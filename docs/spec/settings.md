@@ -4,7 +4,11 @@
 
 - **Options → Settings** (F10) opens one window with tabs. The Options menu
   also opens it directly at a tab: Audio, MIDI, General, Folders, Project and
-  Updates; **Update checker** opens the Updates tab and checks right away.
+  Updates; **Updates → Check for updates** opens the Updates tab and checks
+  right away (next to the *Delete the update APK after it installs* switch).
+  On Android the Options menu also has **Debug**: the *Write the log file*
+  switch and **View the log**, the newest log lines in a window, so a
+  problem can be checked without leaving the app.
 - Settings belong to the user, not the project: they are stored in
   `$XDG_CONFIG_HOME/musiccraft/settings.json` (`~/.config/…` when unset;
   `%APPDATA%\MusicCraft` on Windows, `~/Library/Application Support/MusicCraft`

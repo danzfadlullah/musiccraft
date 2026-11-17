@@ -44,7 +44,9 @@ pub use dialogs::{FilePick, Pick, PickMode};
 pub use geometry::Snap;
 pub use keymap::{Chord, DEFAULT_KEYMAP, Keymap};
 pub use plugins::{LivePluginView, PluginEntry, PluginParamView, Plugins};
-pub use settings::{MidiInput, Settings, SettingsInfo, UpdateInfo, UpdateStatus, update_popup};
+pub use settings::{
+    MidiInput, Settings, SettingsInfo, UpdateInfo, UpdateStatus, debug_log, update_popup,
+};
 pub use theme::apply as apply_theme;
 
 /// Something the user asked for, produced by one frame of UI.
@@ -678,6 +680,8 @@ pub struct UiState {
     /// The Options → Soundfonts summary of every font the project and the
     /// bundle use, cached per path set for the same reason.
     pub(crate) soundfont_list: Option<(Vec<String>, Vec<musiccraft_commands::FontEntry>)>,
+    /// The Options → Debug log viewer is open.
+    pub(crate) debug_log_open: bool,
     /// A name being renamed where it is drawn.
     renaming: Option<dialogs::InPlace>,
     antiserum: antiserum::AntiserumUi,
@@ -783,6 +787,7 @@ impl UiState {
             update_install_requested: false,
             soundfont_presets: None,
             soundfont_list: None,
+            debug_log_open: false,
             antiserum: antiserum::AntiserumUi::default(),
         }
     }
@@ -961,6 +966,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut UiState, frame: &Frame<'_>) -> Vec<Ac
     automation::show(&ctx, state, frame, &mut actions);
     dialogs::show(&ctx, state, frame, &mut actions);
     dialogs::shortcuts(&ctx, state);
+    settings::debug_log(state, &ctx);
     effect_window::show_all(&ctx, state, frame, &mut actions);
     spectrum::show(&ctx, state, frame);
     tap_tempo::show(&ctx, state, frame.project.tempo_bpm(), &mut actions);

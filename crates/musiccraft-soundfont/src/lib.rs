@@ -52,6 +52,9 @@ pub struct Preset {
 struct SampleHeader {
     start: usize,
     end: usize,
+    /// The sustain loop, in frames (`0, 0` when the sample does not loop).
+    loop_start: u32,
+    loop_end: u32,
     sample_rate: u32,
     original_pitch: u8,
     pitch_correction: i8,
@@ -84,6 +87,11 @@ pub struct ZoneSpec {
     pub root: f32,
     /// Whether the sample loops (the `sampleModes` loop bit).
     pub loops: bool,
+    /// The sample's sustain loop, in frames; `loop_end` is exclusive and
+    /// `0, 0` means no loop. Zones that loop hold their note for as long
+    /// as it sounds, instead of running out of sample.
+    pub loop_start: u32,
+    pub loop_end: u32,
 }
 
 /// A byte reader over a chunk's slice.
@@ -400,6 +408,7 @@ impl Soundfont {
         let tune = f32::from(pick(GEN_COARSE_TUNE).unwrap_or(0) as i16)
             + f32::from(pick(GEN_FINE_TUNE).unwrap_or(0) as i16) / 100.0
             + f32::from(header.pitch_correction) / 100.0;
+        let loops = pick(GEN_SAMPLE_MODES).is_some_and(|modes| modes & 1 == 1);
         Some(ZoneSpec {
             sample,
             low,
@@ -407,7 +416,9 @@ impl Soundfont {
             vel_low,
             vel_high,
             root: f32::from(root_key as i8) - tune,
-            loops: pick(GEN_SAMPLE_MODES).is_some_and(|modes| modes & 1 == 1),
+            loops,
+            loop_start: if loops { header.loop_start } else { 0 },
+            loop_end: if loops { header.loop_end } else { 0 },
         })
     }
 
@@ -518,8 +529,8 @@ impl Soundfont {
                 // The terminal record: an empty sample nothing names.
                 break;
             }
-            let _loop_start = reader.u32()?;
-            let _loop_end = reader.u32()?;
+            let loop_start = reader.u32()?;
+            let loop_end = reader.u32()?;
             let sample_rate = reader.u32()?;
             let original_pitch = reader.bytes(1)?[0];
             let pitch_correction = reader.bytes(1)?[0] as i8;
@@ -529,6 +540,8 @@ impl Soundfont {
             samples.push(SampleHeader {
                 start,
                 end,
+                loop_start,
+                loop_end,
                 sample_rate,
                 original_pitch,
                 pitch_correction,
@@ -750,6 +763,11 @@ mod tests {
     /// A minimal mono `.sf2`: one preset, one instrument, one sample over
     /// keys 36–84, velocities 1–127, root key 60, tuned down an octave.
     fn mono_font(pcm: &[u8], compressed: bool) -> Vec<u8> {
+        mono_font_with(pcm, compressed, None)
+    }
+
+    /// The same font with a `sampleModes` generator, for the loop tests.
+    fn mono_font_with(pcm: &[u8], compressed: bool, modes: Option<u16>) -> Vec<u8> {
         let mut file = Vec::new();
         chunk(&mut file, b"RIFF", b"sfbk");
         let mut info = Vec::new();
@@ -772,11 +790,14 @@ mod tests {
         inst.extend(instrument_record("", 2));
         chunk(&mut pdta, b"inst", &inst);
         let mut ibag = bag(0);
-        ibag.extend(bag(3));
+        ibag.extend(bag(if modes.is_some() { 4 } else { 3 }));
         chunk(&mut pdta, b"ibag", &ibag);
         let mut igen = generator_pair(GEN_SAMPLE_ID, 0);
         igen.extend(generator_pair(GEN_ROOT_KEY, 60));
         igen.extend(generator_pair(GEN_COARSE_TUNE, (-12i16) as u16));
+        if let Some(modes) = modes {
+            igen.extend(generator_pair(GEN_SAMPLE_MODES, modes));
+        }
         chunk(&mut pdta, b"igen", &igen);
         let end = if compressed {
             pcm.len() as u32
@@ -819,6 +840,24 @@ mod tests {
             "root 60 tuned down an octave plays from 72"
         );
         assert!(!zone.loops);
+        assert_eq!((zone.loop_start, zone.loop_end), (0, 0));
+    }
+
+    #[test]
+    fn a_looping_zone_carries_the_samples_loop() {
+        let pcm = tone_pcm(44_100, 440.0);
+        let frames = pcm.len() as u32 / 2;
+        let font = Soundfont::parse(&mono_font_with(&pcm, false, Some(1))).unwrap();
+        let zones = font.preset_zones(0).unwrap();
+        assert_eq!(zones.len(), 1);
+        let zone = &zones[0];
+        assert!(zone.loops);
+        assert_eq!((zone.loop_start, zone.loop_end), (0, frames));
+        // A loop switch-off leaves no loop behind.
+        let off = Soundfont::parse(&mono_font_with(&pcm, false, Some(0))).unwrap();
+        let zone = &off.preset_zones(0).unwrap()[0];
+        assert!(!zone.loops);
+        assert_eq!((zone.loop_start, zone.loop_end), (0, 0));
     }
 
     #[test]

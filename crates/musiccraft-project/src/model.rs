@@ -300,6 +300,12 @@ pub struct SampleZone {
     pub vel_low: u8,
     /// Highest velocity (1–127) that plays it.
     pub vel_high: u8,
+    /// The sample's sustain loop, in frames (`0, 0` when it does not loop):
+    /// a soundfont zone holds its note for as long as it sounds.
+    #[serde(default)]
+    pub loop_start: u32,
+    #[serde(default)]
+    pub loop_end: u32,
 }
 
 impl SampleZone {
@@ -313,6 +319,8 @@ impl SampleZone {
             root: 60,
             vel_low: 1,
             vel_high: 127,
+            loop_start: 0,
+            loop_end: 0,
         }
     }
 }

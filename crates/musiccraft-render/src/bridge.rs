@@ -1030,6 +1030,8 @@ impl Bridge {
                             root: z.root,
                             vel_low: z.vel_low,
                             vel_high: z.vel_high,
+                            loop_start: z.loop_start,
+                            loop_end: z.loop_end,
                         })
                         .collect(),
                 ),

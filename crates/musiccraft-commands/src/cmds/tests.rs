@@ -1891,7 +1891,9 @@ fn the_bundled_font_is_offered_by_its_installed_path() {
     // nowhere — a MIDI import through that name plays silence).
     let (path, font) = super::soundfont::default_font().expect("bundled font");
     assert_eq!(path, file.to_string_lossy());
-    let (_, zones) = super::soundfont::gm_preset(&font, &path, 0, Some(0)).expect("a GM preset");
+    let (_, zones, drums) =
+        super::soundfont::gm_preset(&font, &path, 0, Some(0)).expect("a GM preset");
+    assert!(!drums);
     assert!(!zones.is_empty());
     for zone in &zones {
         assert_eq!(
@@ -1904,6 +1906,25 @@ fn the_bundled_font_is_offered_by_its_installed_path() {
     }
     musiccraft_paths::clear_bundled_soundfont();
     assert!(super::soundfont::default_font().is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_melodic_soundfont_channel_releases_at_note_off() {
+    let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sfos-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let font = soundfont_file(&dir).to_string_lossy().into_owned();
+    let mut s = session();
+    run(&mut s, &format!("channel.add_soundfont {font}"));
+    // The test font's only preset is melodic (bank 0): its notes end at
+    // note-off instead of ringing to the sample's end.
+    let one_shot = musiccraft_project::params::inst::ONE_SHOT;
+    assert_eq!(s.project().channels[0].params.get(one_shot), 0.0);
+    run(&mut s, "channel.add_zones");
+    run(&mut s, &format!("channel.load_soundfont 2 {font}"));
+    // load_soundfont swaps zones only; the channel's params stay.
+    assert_eq!(s.project().channels[1].params.get(one_shot), 1.0);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

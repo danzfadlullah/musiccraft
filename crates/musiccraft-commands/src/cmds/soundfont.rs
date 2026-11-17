@@ -65,7 +65,7 @@ pub(super) fn preset_zones_at(
     font: &Soundfont,
     path: &str,
     index: usize,
-) -> Result<(String, Vec<SampleZone>), String> {
+) -> Result<(String, Vec<SampleZone>, bool), String> {
     let chosen = font
         .presets()
         .get(index)
@@ -82,9 +82,11 @@ pub(super) fn preset_zones_at(
             root: zone.root.round().clamp(0.0, 127.0) as u8,
             vel_low: zone.vel_low.max(1),
             vel_high: zone.vel_high.max(zone.vel_low.max(1)),
+            loop_start: zone.loop_start,
+            loop_end: zone.loop_end,
         })
         .collect();
-    Ok((chosen.name.clone(), zones))
+    Ok((chosen.name.clone(), zones, chosen.bank >= 128))
 }
 
 /// The preset `args` names (1-based, default 1) of the soundfont at `path`,
@@ -94,7 +96,7 @@ fn preset_zones(
     path: &str,
     args: &Args<'_>,
     at: usize,
-) -> Result<(String, Vec<SampleZone>), CommandError> {
+) -> Result<(String, Vec<SampleZone>, bool), CommandError> {
     let font = parse_file(path).map_err(|e| args.invalid(e))?;
     let presets = font.presets();
     if presets.is_empty() {
@@ -325,7 +327,7 @@ pub(super) fn gm_preset(
     path: &str,
     midi_channel: u8,
     program: Option<u8>,
-) -> Option<(String, Vec<SampleZone>)> {
+) -> Option<(String, Vec<SampleZone>, bool)> {
     let presets = font.presets();
     let index = match midi_channel {
         9 => presets
@@ -347,17 +349,24 @@ pub(super) fn gm_preset(
 fn add_soundfont(project: &mut Project, args: &Args<'_>) -> Result<Outcome, CommandError> {
     args.expect(1, 3)?;
     let path = resolve_path(args.str(0)?, args)?;
-    let (preset, zones) = preset_zones(&path, args, 1)?;
+    let (preset, zones, drums) = preset_zones(&path, args, 1)?;
     let name = if args.len() > 2 {
         args.rest(2)?
     } else {
         preset
     };
     let id = ChannelId(project.alloc_id());
-    Ok(push_channel(
-        project,
-        Channel::new(id, name, Instrument::Zones { zones }),
-    ))
+    let mut channel = Channel::new(id, name, Instrument::Zones { zones });
+    set_one_shot(&mut channel, drums);
+    Ok(push_channel(project, channel))
+}
+
+/// A melodic soundfont preset releases its note at note-off, like a GM
+/// player; a drum kit plays through (its samples are short, and note-offs
+/// there mean nothing). Without this, every note rings to the sample's end,
+/// piling up voices that sound like reverb and steal each other's slots.
+pub(super) fn set_one_shot(channel: &mut musiccraft_project::Channel, drums: bool) {
+    channel.params.0[musiccraft_project::params::inst::ONE_SHOT] = u8::from(drums) as f32;
 }
 
 /// Replaces any channel's instrument with a soundfont preset's zones —
@@ -367,13 +376,14 @@ fn set_soundfont_preset(project: &mut Project, args: &Args<'_>) -> Result<Outcom
     args.expect(3, 3)?;
     let index = channel_arg(project, args, 0)?;
     let path = resolve_path(args.str(1)?, args)?;
-    let (preset, zones) = preset_zones(&path, args, 2)?;
+    let (preset, zones, drums) = preset_zones(&path, args, 2)?;
     let number = index + 1;
     let old = super::channel::snapshot_json(&project.channels[index])
         .map_err(|e| args.invalid(e.to_string()))?;
     let channel = &mut project.channels[index];
     channel.instrument = Instrument::Zones { zones };
     channel.params = musiccraft_project::InstrumentParams::default();
+    set_one_shot(channel, drums);
     Ok(Outcome::undoable(
         format!("channel {number}: {preset}"),
         Invocation::new("channel.set_instrument", [number.to_string(), old]),
@@ -384,7 +394,7 @@ fn load_soundfont(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Com
     args.expect(2, 3)?;
     let index = channel_arg(project, args, 0)?;
     let path = resolve_path(args.str(1)?, args)?;
-    let (preset, zones) = preset_zones(&path, args, 2)?;
+    let (preset, zones, _) = preset_zones(&path, args, 2)?;
     let old = zones_mut(project, args, index)?.clone();
     let number = index + 1;
     // Undo: the new zones out (newest first), the old ones back in place.

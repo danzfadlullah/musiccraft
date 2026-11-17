@@ -49,7 +49,8 @@ lands where the user chose.
 ## Updates
 
 The app checks its own updates against this fork's rolling `android`
-pre-release: once at start-up, from **Options → Update checker**, and again
+pre-release: once at start-up, from **Options → Updates → Check for
+updates**, and again
 from **Settings → Updates**. When a
 newer build is published there, a pop-up offers it wherever you are — with
 the changelog (the commits since the previous release, which CI writes into
@@ -82,12 +83,12 @@ instead: `Android/data/io.github.bhimio1.musiccraft/files/MusicCraft/update/`,
 open it with a file manager.
 
 The spare copy in the app's storage carries the version in its name
-(`MusicCraft-update-0.10.8.apk`). Once an update has installed,
+(`MusicCraft-update-0.10.9.apk`). Once an update has installed,
 the next start sweeps the spent ones out (its version is not newer than the
 one running; a download whose install was cancelled survives) — both the
 spare copies and the `Download/MusicCraft/` entries older versions left
-behind. **Settings →
-General** has the switch: *Delete the update APK after it installs*, on by
+behind. **Options → Updates** has the switch: *Delete the update APK after
+it installs*, on by
 default.
 
 Every APK carries the app's semantic version (the workspace version, shown

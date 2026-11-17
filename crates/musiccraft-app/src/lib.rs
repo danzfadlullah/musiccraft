@@ -1841,12 +1841,11 @@ pub fn run_android(app: android_activity::AndroidApp) -> eframe::Result {
     }
 }
 
-/// A line in the Android log file (`android.rs`); nothing on the desktop.
+/// A log line: kept for the in-app log viewer (Options → Debug) and written
+/// to the Android log file by the sink installed in `run_native`; nothing
+/// on the desktop but the viewer.
 pub(crate) fn log(message: &str) {
-    #[cfg(target_os = "android")]
-    android::log(message);
-    #[cfg(not(target_os = "android"))]
-    let _ = message;
+    musiccraft_paths::log(message);
 }
 
 /// `on`/`off`, for log lines about switches.
@@ -1856,9 +1855,14 @@ fn on_off(enabled: bool) -> &'static str {
 }
 
 fn run_native(options: Options) -> eframe::Result {
-    // The shared crates (menus, commands) log through this hook, so their
-    // lines reach the same file the app's own log lines go to.
-    musiccraft_paths::set_log_sink(Box::new(log));
+    // Every log line funnels through `musiccraft_paths::log` (the in-app
+    // viewer reads its ring); the sink writes the Android log file.
+    musiccraft_paths::set_log_sink(Box::new(|message| {
+        #[cfg(target_os = "android")]
+        android::log(message);
+        #[cfg(not(target_os = "android"))]
+        let _ = message;
+    }));
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1360.0, 860.0])

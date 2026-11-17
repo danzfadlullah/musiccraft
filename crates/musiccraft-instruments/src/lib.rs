@@ -81,6 +81,11 @@ pub struct Zone {
     /// Lowest and highest velocity (1–127) that play it.
     pub vel_low: u8,
     pub vel_high: u8,
+    /// The sample's sustain loop, in frames (`0, 0` when it does not
+    /// loop): a looping zone holds its note while it sounds, instead of
+    /// running out of sample.
+    pub loop_start: u32,
+    pub loop_end: u32,
 }
 
 impl Zone {

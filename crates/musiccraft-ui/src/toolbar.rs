@@ -280,15 +280,50 @@ fn options_menu(
     settings_item(ui, state, "General settings", "general", actions);
     settings_item(ui, state, "Folders and plugins", "folders", actions);
     settings_item(ui, state, "Project info", "project", actions);
-    if ui
-        .button("Update checker")
-        .hint("Ask the Releases tab whether a newer build is published")
-        .clicked()
-    {
-        run(actions, "ui.settings updates");
-        actions.push(Action::CheckUpdates);
-        ui.close();
-    }
+    ui.menu_button("Updates", |ui| {
+        if ui
+            .button("Check for updates")
+            .hint("Ask the Releases tab whether a newer build is published")
+            .clicked()
+        {
+            run(actions, "ui.settings updates");
+            actions.push(Action::CheckUpdates);
+            ui.close();
+        }
+        #[cfg(target_os = "android")]
+        {
+            let mut delete = frame.settings.delete_apk;
+            if ui
+                .checkbox(&mut delete, "Delete the update APK after it installs")
+                .changed()
+            {
+                actions.push(Action::Settings(Box::new(crate::Settings {
+                    delete_apk: delete,
+                    ..frame.settings.clone()
+                })));
+            }
+        }
+    });
+    ui.menu_button("Debug", |ui| {
+        #[cfg(target_os = "android")]
+        {
+            let mut logging = frame.settings.logging;
+            if ui.checkbox(&mut logging, "Write the log file").changed() {
+                actions.push(Action::Settings(Box::new(crate::Settings {
+                    logging,
+                    ..frame.settings.clone()
+                })));
+            }
+        }
+        if ui
+            .button("View the log")
+            .hint("The newest log lines, without leaving the app")
+            .clicked()
+        {
+            state.debug_log_open = true;
+            ui.close();
+        }
+    });
     ui.separator();
     let mut metronome = frame.project.metronome;
     if ui.checkbox(&mut metronome, "Metronome").changed() {

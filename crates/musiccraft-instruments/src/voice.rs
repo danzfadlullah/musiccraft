@@ -537,12 +537,23 @@ impl Voice {
                     pitch
                 };
                 let root = param(params, inst::ROOT_KEY);
-                self.render_sample(buffer, params, pitch, root, left, right, sample_rate);
+                self.render_sample(buffer, params, pitch, root, None, left, right, sample_rate);
             }
             Instrument::Zones(zones) => match zones.get(self.pad) {
                 Some(zone) => {
                     let root = f32::from(zone.root);
-                    self.render_sample(&zone.buffer, params, pitch, root, left, right, sample_rate);
+                    let sustain_loop = (zone.loop_end > zone.loop_start)
+                        .then_some((f64::from(zone.loop_start), f64::from(zone.loop_end)));
+                    self.render_sample(
+                        &zone.buffer,
+                        params,
+                        pitch,
+                        root,
+                        sustain_loop,
+                        left,
+                        right,
+                        sample_rate,
+                    );
                 }
                 None => self.active = false,
             },
@@ -552,7 +563,16 @@ impl Voice {
                 match pads.get(self.pad) {
                     Some(Some(buffer)) => {
                         let root = param(params, inst::ROOT_KEY);
-                        self.render_sample(buffer, params, pitch, root, left, right, sample_rate);
+                        self.render_sample(
+                            buffer,
+                            params,
+                            pitch,
+                            root,
+                            None,
+                            left,
+                            right,
+                            sample_rate,
+                        );
                     }
                     _ => self.active = false,
                 }
@@ -577,7 +597,9 @@ impl Voice {
     }
 
     /// Plays `buffer` from the current position at `pitch` relative to
-    /// `root` (sampler, slices, zones and kit pads).
+    /// `root` (sampler, slices, zones and kit pads). `loop` is the sample's
+    /// sustain loop in frames: a looping zone wraps at the loop's end for
+    /// as long as the note sounds, instead of running out of sample.
     #[allow(clippy::too_many_arguments)]
     fn render_sample(
         &mut self,
@@ -585,6 +607,7 @@ impl Voice {
         params: &Params,
         pitch: f32,
         root: f32,
+        loop_range: Option<(f64, f64)>,
         left: &mut [f32],
         right: &mut [f32],
         sample_rate: f32,
@@ -596,6 +619,14 @@ impl Voice {
             .slice_end
             .unwrap_or(f64::INFINITY)
             .min(buffer.len() as f64);
+        // One-shots (drum kits) play through to the sample's end; a loop
+        // there would never end the voice.
+        let (loop_start, loop_len) = match loop_range {
+            Some((start, end)) if end > start && !self.one_shot && !self.reverse => {
+                (start, end - start)
+            }
+            _ => (0.0, 0.0),
+        };
         let fade_in = f64::from(param(params, inst::FADE_IN)) * f64::from(sample_rate);
         let fade_out = f64::from(param(params, inst::FADE_OUT)) * f64::from(sample_rate);
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
@@ -618,6 +649,9 @@ impl Voice {
                 self.sample_pos < 0.0
             } else {
                 self.sample_pos += step;
+                if loop_len > 0.0 && self.sample_pos >= loop_start + loop_len {
+                    self.sample_pos -= loop_len;
+                }
                 self.sample_pos >= end
             };
             if done || self.env.is_idle() {

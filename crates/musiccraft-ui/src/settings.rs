@@ -644,17 +644,45 @@ fn general(ui: &mut egui::Ui, state: &mut UiState, frame: &Frame<'_>, actions: &
         settings.keep_instrument_windows,
         |s, v| s.keep_instrument_windows = v,
     );
-    #[cfg(target_os = "android")]
-    toggle(ui, "Write the log file", settings.logging, |s, v| {
-        s.logging = v
-    });
-    #[cfg(target_os = "android")]
-    toggle(
-        ui,
-        "Delete the update APK after it installs",
-        settings.delete_apk,
-        |s, v| s.delete_apk = v,
-    );
+}
+
+/// The Options → Debug log viewer: the newest log lines in a window, so a
+/// problem can be checked without leaving the app to find the log file.
+/// The full file (this session's own, `musiccraft-<start time>.log`) lives
+/// in the app's `MusicCraft/logs` folders.
+pub fn debug_log(state: &mut UiState, ctx: &egui::Context) {
+    if !state.debug_log_open {
+        return;
+    }
+    egui::Window::new("Debug log")
+        .id(egui::Id::new("debug-log"))
+        .open(&mut state.debug_log_open)
+        .default_width(620.0)
+        .default_height(420.0)
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if ui
+                    .button("Copy")
+                    .on_hover_text("Copy every line to the clipboard")
+                    .clicked()
+                {
+                    let lines = musiccraft_paths::recent_logs().join("\n");
+                    ui.ctx().copy_text(lines);
+                }
+                if ui.button("Clear").clicked() {
+                    musiccraft_paths::clear_logs();
+                }
+                ui.weak("newest at the bottom; the log files live in MusicCraft/logs");
+            });
+            ui.separator();
+            egui::ScrollArea::vertical()
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    for line in musiccraft_paths::recent_logs() {
+                        ui.add(egui::Label::new(RichText::new(line).monospace()).wrap());
+                    }
+                });
+        });
 }
 
 fn folder_list(ui: &mut egui::Ui, folders: &[PathBuf]) -> Option<usize> {
