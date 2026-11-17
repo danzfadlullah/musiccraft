@@ -1712,6 +1712,32 @@ fn import_midi_keeps_the_file_volume_pan_name_and_tempo() {
 }
 
 #[test]
+fn import_midi_opens_channels_in_an_empty_project() {
+    use crate::midi_file::tests::{sample_track, smf, two_channel_track};
+    let mut s = session();
+    let path = std::env::temp_dir().join(format!("musiccraft-empty-{}.mid", std::process::id()));
+    std::fs::write(&path, smf(192, &two_channel_track())).unwrap();
+    run(
+        &mut s,
+        &format!("note.import_midi 1 \"{}\"", path.display()),
+    );
+    assert_eq!(s.project().channels.len(), 2);
+    assert!(s.project().channels[0].name.ends_with(" 1"));
+    assert_eq!(s.project().channels[1].name, "Drums");
+    run(&mut s, "edit.undo");
+    assert!(s.project().channels.is_empty());
+    std::fs::write(&path, smf(192, &sample_track())).unwrap();
+    run(
+        &mut s,
+        &format!("note.import_midi 1 \"{}\"", path.display()),
+    );
+    assert_eq!(s.project().channels.len(), 1);
+    assert!(s.project().channels[0].name.ends_with(" 1"));
+    assert!(!s.project().current_pattern().notes.is_empty());
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn set_instrument_swaps_the_sound_and_keeps_the_channel() {
     let mut s = session();
     run(&mut s, "channel.add_synth Lead");

@@ -4,7 +4,7 @@ use musiccraft_project::music::key_name;
 use musiccraft_project::params::TICKS_PER_STEP;
 use musiccraft_project::{
     Channel, ChannelId, DEFAULT_VELOCITY, Instrument, MAX_PATTERN_STEPS, MAX_TEMPO_BPM,
-    MIN_TEMPO_BPM, Note, Project, STEP_KEY,
+    MIN_TEMPO_BPM, Note, Project, ProjectError, STEP_KEY,
 };
 
 use super::channel::{channel_arg, push_channel};
@@ -605,7 +605,14 @@ fn quantize(project: &mut Project, args: &Args<'_>) -> Result<Outcome, CommandEr
 
 fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, CommandError> {
     args.expect(2, 2)?;
-    let target = Target::resolve(project, args)?;
+    // The channel is optional: importing into an empty project (no channel
+    // to target) opens every part as its own channel instead of failing.
+    let pattern = args.pattern_index(project)?;
+    let target = match channel_arg(project, args, 0) {
+        Ok(channel) => Some(Target { pattern, channel }),
+        Err(CommandError::Project(ProjectError::NotFound { .. })) => None,
+        Err(err) => return Err(err),
+    };
     let path = args.str(1)?;
     let data =
         std::fs::read(path).map_err(|e| CommandError::Io(format!("cannot read {path}: {e}")))?;
@@ -614,7 +621,9 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
     let division = u64::from(file.ticks_per_quarter);
     let convert =
         |ticks: u64| u32::try_from((ticks * ppq + division / 2) / division).unwrap_or(u32::MAX / 2);
-    let channel = project.channels[target.channel].id;
+    let channel = target
+        .as_ref()
+        .map_or(ChannelId(0), |t| project.channels[t.channel].id);
     let imported: Vec<(u8, Note)> = file
         .notes
         .iter()
@@ -639,13 +648,13 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
     let sig = file
         .time_signature
         .and_then(|(num, den)| musiccraft_project::TimeSig::new(num, den))
-        .filter(|sig| *sig != project.patterns[target.pattern].time_signature);
+        .filter(|sig| *sig != project.patterns[pattern].time_signature);
     let meter_inverse = match sig {
         Some(_) => Some(super::meter::snapshot(project, args)?),
         None => None,
     };
     if let Some(sig) = sig {
-        project.patterns[target.pattern].set_time_signature(sig);
+        project.patterns[pattern].set_time_signature(sig);
     }
     // The file's first tempo becomes the project's.
     let tempo_inverse = match file.tempo_bpm {
@@ -670,7 +679,7 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
         Some(sig) => format!(", pattern in {sig}"),
         None => String::new(),
     };
-    if groups.len() <= 1 {
+    if let Some(target) = target.filter(|_| groups.len() <= 1) {
         let imported: Vec<Note> = groups.into_values().next().unwrap_or_default();
         let (old, _) = rewrite(project, &target, |mut notes| {
             notes.extend(imported);
@@ -719,7 +728,7 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
         }
         push_channel(project, channel);
         let number = project.channels.len();
-        let pattern = &mut project.patterns[target.pattern];
+        let pattern = &mut project.patterns[pattern];
         for note in notes {
             pattern.put_note(Note {
                 channel: id,

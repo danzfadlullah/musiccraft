@@ -25,7 +25,8 @@
 - A file whose notes sound on several MIDI channels opens one new synth
   channel per MIDI channel and puts each part's notes on its channel; undo
   removes those channels again. A single-channel file still joins the chosen
-  channel.
+  channel. Importing into a project with no channels at all opens every part
+  as its own channel too (the channel argument is then only a hint).
 - The import follows the file where it can, like FL Studio's: each new
   channel takes its part's track name, or its last program change's General
   MIDI instrument name (the drum channel 10 falls back to "Drums"), or the
