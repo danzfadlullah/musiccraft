@@ -86,7 +86,6 @@ fn file_menu(ui: &mut egui::Ui, state: &mut UiState, actions: &mut Vec<Action>) 
     );
     ui.separator();
     menu_item(ui, state, "Export audio (WAV, FLAC)…", "ui.export", actions);
-    menu_item(ui, state, "Export stems…", "ui.export_stems", actions);
     menu_item(ui, state, "Export MIDI…", "ui.export_midi", actions);
     menu_item(ui, state, "Import MIDI file…", "ui.import_midi", actions);
     if let Some(path) = state.autosave_path.clone() {
@@ -278,7 +277,6 @@ fn options_menu(
     settings_item(ui, state, "Audio settings", "audio", actions);
     settings_item(ui, state, "MIDI settings", "midi", actions);
     settings_item(ui, state, "General settings", "general", actions);
-    settings_item(ui, state, "Folders and plugins", "folders", actions);
     settings_item(ui, state, "Project info", "project", actions);
     ui.menu_button("Updates", |ui| {
         if ui
@@ -990,14 +988,9 @@ fn utilities(ui: &mut egui::Ui, state: &mut UiState, frame: &Frame<'_>, actions:
             run(actions, "ui.export");
         }
         export.context_menu(|ui| {
-            for (label, invocation) in [
-                ("Export stems…", "ui.export_stems"),
-                ("Export MIDI… (Ctrl+Shift+M)", "ui.export_midi"),
-            ] {
-                if ui.button(label).clicked() {
-                    run(actions, invocation);
-                    ui.close();
-                }
+            if ui.button("Export MIDI… (Ctrl+Shift+M)").clicked() {
+                run(actions, "ui.export_midi");
+                ui.close();
             }
         });
     });

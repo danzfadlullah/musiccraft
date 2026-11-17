@@ -44,7 +44,6 @@ pub enum Pick {
     SaveAs,
     /// Where to export audio; the format prompt follows.
     Export,
-    ExportStems,
     ExportMidi,
     /// New sampler channels, one per file.
     AddSample,
@@ -57,13 +56,6 @@ pub enum Pick {
     ImportMidi(usize),
     /// A new zone sampler playing a SoundFont preset.
     AddSoundfont,
-    AddFolder,
-    AddPluginFolder,
-    /// Settings → Folders: the FL Studio factory and user data folders.
-    FlFactory,
-    FlUser,
-    /// Settings → Folders: the local folder of a drive mapping being added.
-    DriveFolder,
     SavePatch(usize),
     OpenPatch(usize),
     /// Antiserum channel and oscillator (0-based).
@@ -165,12 +157,6 @@ impl FilePick {
             | Pick::SetEffectFile(_, _)
             | Pick::AntiserumSample(_, _)
             | Pick::AntiserumZone(_, _) => vec![SOUND_FILES],
-            Pick::ExportStems
-            | Pick::AddFolder
-            | Pick::AddPluginFolder
-            | Pick::FlFactory
-            | Pick::FlUser
-            | Pick::DriveFolder => Vec::new(),
         };
         Self {
             pick,
@@ -191,12 +177,6 @@ impl FilePick {
     pub fn mode(&self) -> PickMode {
         match self.pick {
             Pick::SaveAs | Pick::Export | Pick::ExportMidi | Pick::SavePatch(_) => PickMode::Save,
-            Pick::ExportStems
-            | Pick::AddFolder
-            | Pick::AddPluginFolder
-            | Pick::FlFactory
-            | Pick::FlUser
-            | Pick::DriveFolder => PickMode::Folder,
             Pick::AddSample => PickMode::Files,
             _ => PickMode::File,
         }
@@ -248,14 +228,6 @@ impl FilePick {
         )
     }
 
-    pub fn export_stems(project: &Project) -> Self {
-        Self::new(
-            Pick::ExportStems,
-            "Export stems to folder",
-            project_dir(project),
-        )
-    }
-
     pub fn add_sample(project: &Project) -> Self {
         Self::new(
             Pick::AddSample,
@@ -280,24 +252,6 @@ impl FilePick {
             .filter(|p| p.is_absolute() && p.is_dir())
             .map(Path::to_path_buf);
         Self::new(pick, title, folder.or_else(|| project_dir(project)))
-    }
-
-    pub fn add_folder() -> Self {
-        Self::new(Pick::AddFolder, "Add folder to the browser", home_dir())
-    }
-
-    pub fn add_plugin_folder() -> Self {
-        Self::new(Pick::AddPluginFolder, "Add a plugin folder", home_dir())
-    }
-
-    /// One of the folders in Settings → Folders.
-    pub fn folder(pick: Pick) -> Self {
-        let title = match pick {
-            Pick::FlFactory => "FL Studio factory data folder",
-            Pick::FlUser => "FL Studio user data folder",
-            _ => "Choose a folder",
-        };
-        Self::new(pick, title, home_dir())
     }
 
     /// Save an Antiserum channel's patch: a file named after it, in the user
@@ -326,10 +280,9 @@ impl FilePick {
         let text = path.display().to_string();
         let ch = |c: usize| (c + 1).to_string();
         Some(match self.pick {
-            Pick::Export | Pick::DriveFolder => return None,
+            Pick::Export => return None,
             Pick::Open => Invocation::new("project.load", [text]),
             Pick::SaveAs => Invocation::new("project.save", [text]),
-            Pick::ExportStems => Invocation::new("project.export_stems", [text]),
             Pick::ExportMidi => Invocation::new("project.export_midi", [text]),
             Pick::AddSample => Invocation::new("channel.add_sampler", [text]),
             Pick::SetSample(c) => Invocation::new("channel.set_sample", [ch(c), text]),
@@ -340,10 +293,6 @@ impl FilePick {
             Pick::SetEffectFile(track, slot) => {
                 Invocation::new("mixer.set_effect_file", [track.to_string(), ch(slot), text])
             }
-            Pick::AddFolder => Invocation::new("ui.add_folder", [text]),
-            Pick::AddPluginFolder => Invocation::new("ui.add_plugin_folder", [text]),
-            Pick::FlFactory => Invocation::new("ui.set_fl_folder", ["factory".to_owned(), text]),
-            Pick::FlUser => Invocation::new("ui.set_fl_folder", ["user".to_owned(), text]),
             Pick::SavePatch(c) => Invocation::new("antiserum.save_patch", [ch(c), text]),
             Pick::OpenPatch(c) => Invocation::new("antiserum.open_patch", [ch(c), text]),
             Pick::AntiserumSample(c, osc) => {
@@ -523,10 +472,8 @@ impl UiState {
     /// The answer to a file dialog: the actions to run for the chosen paths
     /// (none when it was cancelled). An export opens its format prompt.
     pub fn picked(&mut self, pick: &FilePick, paths: &[PathBuf]) -> Vec<Action> {
-        match (&pick.pick, paths.first()) {
-            (Pick::Export, Some(path)) => self.dialog = Some(Dialog::export_to(path)),
-            (Pick::DriveFolder, Some(path)) => self.drive_draft.1 = Some(path.clone()),
-            _ => {}
+        if let (Pick::Export, Some(path)) = (&pick.pick, paths.first()) {
+            self.dialog = Some(Dialog::export_to(path));
         }
         let paths = if pick.mode() == PickMode::Files {
             paths
@@ -831,8 +778,6 @@ mod tests {
         let export = FilePick::export(&project);
         assert_eq!(export.file_name.as_deref(), Some("Untitled.wav"));
         assert_eq!(export.filters.len(), 4);
-        assert_eq!(FilePick::export_stems(&project).mode(), PickMode::Folder);
-        assert_eq!(FilePick::add_folder().mode(), PickMode::Folder);
         assert_eq!(FilePick::add_sample(&project).mode(), PickMode::Files);
         let sample = FilePick::sample(Pick::SetSample(0), "builtin:kick", &project);
         assert_eq!(sample.mode(), PickMode::File);

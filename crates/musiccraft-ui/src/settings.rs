@@ -7,7 +7,6 @@ use egui::RichText;
 use musiccraft_commands::Invocation;
 use serde::{Deserialize, Serialize};
 
-use crate::dialogs::{FilePick, Pick};
 use crate::{Action, Frame, UiState, theme};
 
 /// Which MIDI input to use.
@@ -232,8 +231,6 @@ pub enum Tab {
     Midi,
     /// Interface and startup.
     General,
-    /// Browser and plugin folders.
-    Folders,
     /// Name, tempo and statistics.
     Project,
     /// The app's own updates (Android).
@@ -241,11 +238,10 @@ pub enum Tab {
 }
 
 impl Tab {
-    const ALL: [Tab; 6] = [
+    const ALL: [Tab; 5] = [
         Tab::Audio,
         Tab::Midi,
         Tab::General,
-        Tab::Folders,
         Tab::Project,
         Tab::Updates,
     ];
@@ -255,7 +251,6 @@ impl Tab {
             Self::Audio => "Audio",
             Self::Midi => "MIDI",
             Self::General => "General",
-            Self::Folders => "Folders",
             Self::Project => "Project",
             Self::Updates => "Updates",
         }
@@ -306,7 +301,6 @@ pub fn show(
                 Tab::Audio => audio(ui, frame, actions),
                 Tab::Midi => midi(ui, state, frame, actions),
                 Tab::General => general(ui, state, frame, actions),
-                Tab::Folders => folders(ui, state, frame, actions),
                 Tab::Project => project(ui, state, frame, actions),
                 Tab::Updates => updates(ui, &frame.settings_info.updates, actions),
             });
@@ -683,175 +677,6 @@ pub fn debug_log(state: &mut UiState, ctx: &egui::Context) {
                     }
                 });
         });
-}
-
-fn folder_list(ui: &mut egui::Ui, folders: &[PathBuf]) -> Option<usize> {
-    let mut remove = None;
-    for (i, folder) in folders.iter().enumerate() {
-        ui.horizontal(|ui| {
-            if ui.small_button("×").hint("Remove").clicked() {
-                remove = Some(i);
-            }
-            ui.label(folder.display().to_string());
-        });
-    }
-    if folders.is_empty() {
-        note(ui, "None.");
-    }
-    remove
-}
-
-fn folders(ui: &mut egui::Ui, state: &mut UiState, frame: &Frame<'_>, actions: &mut Vec<Action>) {
-    let settings = frame.settings;
-    let info = frame.settings_info;
-    ui.label(RichText::new("Browser folders").strong());
-    if let Some(i) = folder_list(ui, &settings.browser_folders) {
-        let mut next = settings.clone();
-        next.browser_folders.remove(i);
-        changed(actions, next);
-    }
-    if ui.small_button("+ Add folder…").clicked() {
-        state.pick_file(FilePick::add_folder());
-    }
-    ui.add_space(10.0);
-    ui.label(RichText::new("Extra plugin folders").strong());
-    note(
-        ui,
-        "Searched for .clap files in addition to ~/.clap, /usr/lib/clap and CLAP_PATH.",
-    );
-    if let Some(i) = folder_list(ui, &settings.plugin_folders) {
-        let mut next = settings.clone();
-        next.plugin_folders.remove(i);
-        changed(actions, next);
-    }
-    ui.horizontal(|ui| {
-        if ui.small_button("+ Add plugin folder…").clicked() {
-            state.pick_file(FilePick::add_plugin_folder());
-        }
-        if ui.small_button("Rescan plugins").clicked() {
-            actions.push(Action::RescanPlugins);
-        }
-    });
-    let mut scan = settings.scan_plugins_on_start;
-    if crate::widgets::led_switch(ui, &mut scan, "Scan plugins on startup").changed() {
-        let mut next = settings.clone();
-        next.scan_plugins_on_start = scan;
-        changed(actions, next);
-    }
-    if info.plugins_unscanned {
-        ui.label("Plugins not scanned yet; rescan to list them");
-    } else {
-        ui.label(format!("{} plugins found", info.plugin_count));
-    }
-    ui.add_space(10.0);
-    foreign_paths(ui, state, settings, actions);
-    if !info.plugin_errors.is_empty() {
-        egui::CollapsingHeader::new(
-            RichText::new(format!("{} files failed to load", info.plugin_errors.len()))
-                .color(theme::HIGHLIGHT),
-        )
-        .show(ui, |ui| {
-            for error in &info.plugin_errors {
-                note(ui, error);
-            }
-        });
-    }
-}
-
-/// Folders that sample paths from Windows projects translate to (see
-/// `docs/spec/sample-paths.md`).
-fn foreign_paths(
-    ui: &mut egui::Ui,
-    state: &mut UiState,
-    settings: &Settings,
-    actions: &mut Vec<Action>,
-) {
-    ui.label(RichText::new("Samples from Windows projects").strong());
-    note(
-        ui,
-        "Paths like C:\\… or %FLStudioFactoryData%\\… are looked up here (Wine prefixes, \
-         /mnt drives and your home folder are tried too). Leave empty to detect.",
-    );
-    for (label, current, pick, clear) in [
-        (
-            "FL Studio factory data",
-            &settings.fl_factory,
-            Pick::FlFactory,
-            (|s: &mut Settings| s.fl_factory = None) as fn(&mut Settings),
-        ),
-        (
-            "FL Studio user data",
-            &settings.fl_user,
-            Pick::FlUser,
-            |s: &mut Settings| s.fl_user = None,
-        ),
-    ] {
-        row(ui, label, |ui| {
-            match current {
-                Some(path) => {
-                    ui.label(
-                        RichText::new(path.display().to_string())
-                            .monospace()
-                            .small(),
-                    );
-                }
-                None => {
-                    ui.label(RichText::new("detected").color(theme::TEXT_DIM));
-                }
-            }
-            if ui
-                .small_button("Choose…")
-                .hint("Choose the folder with the system's file dialog")
-                .clicked()
-            {
-                state.pick_file(FilePick::folder(pick));
-            }
-            if current.is_some() && ui.small_button("×").hint("Detect it again").clicked() {
-                let mut next = settings.clone();
-                clear(&mut next);
-                changed(actions, next);
-            }
-        });
-    }
-    ui.label("Drive mappings");
-    for (i, (prefix, folder)) in settings.drive_map.iter().enumerate() {
-        ui.horizontal(|ui| {
-            if ui.small_button("×").hint("Remove").clicked() {
-                let mut next = settings.clone();
-                next.drive_map.remove(i);
-                changed(actions, next);
-            }
-            ui.label(format!("{prefix}  →  {}", folder.display()));
-        });
-    }
-    ui.horizontal(|ui| {
-        let (from, to) = &mut state.drive_draft;
-        ui.add(
-            egui::TextEdit::singleline(from)
-                .hint_text("C:\\Users\\Ana\\Music")
-                .desired_width(170.0),
-        );
-        ui.label("→");
-        let folder = to
-            .as_ref()
-            .map_or_else(|| "Choose folder…".to_owned(), |p| p.display().to_string());
-        let choose = ui
-            .button(folder)
-            .hint("The local folder those paths point to (the system's file dialog)")
-            .clicked();
-        let ready = !from.trim().is_empty() && to.is_some();
-        if crate::widgets::add_enabled(ui, ready, egui::Button::new("Add")).clicked()
-            && let Some(folder) = to.take()
-        {
-            let mut next = settings.clone();
-            next.drive_map.push((from.trim().to_owned(), folder));
-            from.clear();
-            changed(actions, next);
-        }
-        if choose {
-            state.pick_file(FilePick::folder(Pick::DriveFolder));
-        }
-    });
 }
 
 fn project(ui: &mut egui::Ui, state: &mut UiState, frame: &Frame<'_>, actions: &mut Vec<Action>) {

@@ -1572,9 +1572,6 @@ fn header(ui: &mut egui::Ui, state: &mut UiState, frame: &Frame<'_>, actions: &m
                 if ui.button("Refresh folders").clicked() {
                     state.browser.listings.clear();
                 }
-                if ui.button("Add folder…").clicked() {
-                    state.pick_file(FilePick::add_folder());
-                }
                 if ui.button("Add channels from files…").clicked() {
                     state.pick_file(FilePick::add_sample(frame.project));
                 }

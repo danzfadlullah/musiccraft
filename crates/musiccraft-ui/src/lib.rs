@@ -610,9 +610,6 @@ pub struct UiState {
     pub sig_draft: (u32, u32),
     /// What the toolbar's position display shows.
     pub time_mode: TimeMode,
-    /// A drive mapping being added in Settings → Folders: the Windows
-    /// prefix (typed) and the local folder (chosen in a file dialog).
-    pub drive_draft: (String, Option<std::path::PathBuf>),
     /// The channel settings window's page.
     pub channel_tab: channel_settings::ChannelTab,
     /// Extra channel windows (Alt+click on a channel name), each on its own
@@ -757,7 +754,6 @@ impl UiState {
             channel_tab: channel_settings::ChannelTab::default(),
             kept_channels: Vec::new(),
             time_mode: TimeMode::Bars,
-            drive_draft: Default::default(),
             rack_group: None,
             graph: None,
             note_clipboard: None,
@@ -1293,7 +1289,6 @@ fn resolve_ui_actions(state: &mut UiState, frame: &Frame<'_>, actions: Vec<Actio
                 ));
             }
             "ui.export" => state.pick_file(dialogs::FilePick::export(frame.project)),
-            "ui.export_stems" => state.pick_file(dialogs::FilePick::export_stems(frame.project)),
             "ui.export_midi" => state.pick_file(dialogs::FilePick::export_midi(frame.project)),
             "ui.import_midi" => state.pick_file(dialogs::FilePick::import_midi(
                 frame.project,
@@ -1340,32 +1335,6 @@ fn resolve_ui_actions(state: &mut UiState, frame: &Frame<'_>, actions: Vec<Actio
                         frame.project,
                         target,
                     )));
-                }
-            }
-            "ui.set_fl_folder" => {
-                if let [which, path] = invocation.args.as_slice() {
-                    let mut next = frame.settings.clone();
-                    let path = Some(std::path::PathBuf::from(path));
-                    match which.as_str() {
-                        "factory" => next.fl_factory = path,
-                        _ => next.fl_user = path,
-                    }
-                    out.push(Action::Settings(Box::new(next)));
-                }
-            }
-            "ui.add_folder" | "ui.add_plugin_folder" => {
-                if let Some(path) = invocation.args.first() {
-                    let path = std::path::PathBuf::from(path);
-                    let mut next = frame.settings.clone();
-                    let list = if invocation.name == "ui.add_folder" {
-                        &mut next.browser_folders
-                    } else {
-                        &mut next.plugin_folders
-                    };
-                    if !list.contains(&path) {
-                        list.push(path);
-                        out.push(Action::Settings(Box::new(next)));
-                    }
                 }
             }
             "ui.settings" => {
@@ -1503,7 +1472,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_actions_open_tabs_and_add_folders() {
+    fn settings_actions_open_tabs() {
         let project = Project::default();
         let (engine, history) = frame_for(&project);
         let settings = Settings::default();
@@ -1523,16 +1492,10 @@ mod tests {
         let out = resolve_ui_actions(
             &mut state,
             &frame,
-            vec![
-                Action::Run(Invocation::parse("ui.settings midi").unwrap()),
-                Action::Run(Invocation::parse("ui.add_plugin_folder /opt/clap").unwrap()),
-            ],
+            vec![Action::Run(Invocation::parse("ui.settings midi").unwrap())],
         );
         assert_eq!(state.settings_tab, Some(settings::Tab::Midi));
-        let [Action::Settings(next)] = out.as_slice() else {
-            panic!("expected new settings, got {out:?}");
-        };
-        assert_eq!(next.plugin_folders, [std::path::PathBuf::from("/opt/clap")]);
+        assert!(out.is_empty());
         resolve_ui_actions(
             &mut state,
             &frame,
