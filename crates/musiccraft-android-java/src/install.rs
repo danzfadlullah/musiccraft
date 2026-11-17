@@ -7,7 +7,7 @@ use android_activity::AndroidApp;
 use jni::objects::{JByteArray, JObject, JString, JValue};
 use jni::{JNIEnv, JavaVM};
 
-use crate::{checked, take, take_bool, take_int};
+use crate::{checked, take, take_bool, take_int, with_env};
 
 const MIME_APK: &str = "application/vnd.android.package-archive";
 /// The update APKs' name prefix in `Download/MusicCraft/`, completed with
@@ -20,13 +20,18 @@ const FOLDER: &str = "Download/MusicCraft";
 /// our MediaStore entry).
 const INTENT_FLAGS: i32 = 0x1000_0000 | 0x0000_0001;
 
-/// Saves `bytes` as an APK in the public Downloads folder and asks the system
-/// installer to open it. Call from a thread attached to the JVM (the egui
-/// thread on Android is the activity's main Java thread). On success the
-/// system's install dialog is on screen; the user confirms the install.
+/// Saves `bytes` as an APK in the public Downloads folder through MediaStore
+/// and returns its content URI as text. Runs on the caller's thread — the
+/// same MediaStore pattern the SAF picker uses there. Hand the URI to
+/// [`open_installer`] next: launching the installer must run on the Java
+/// main thread, so it is a separate step.
 ///
 /// Errors are plain strings: they go straight to the update panel.
-pub fn install_apk(app: &AndroidApp, bytes: &[u8], version: &str) -> Result<(), String> {
+pub fn save_apk_to_downloads(
+    app: &AndroidApp,
+    bytes: &[u8],
+    version: &str,
+) -> Result<String, String> {
     unsafe {
         let vm = JavaVM::from_raw(app.vm_as_ptr().cast())
             .map_err(|e| format!("cannot reach the JVM: {e}"))?;
@@ -34,8 +39,31 @@ pub fn install_apk(app: &AndroidApp, bytes: &[u8], version: &str) -> Result<(), 
             .attach_current_thread()
             .map_err(|e| format!("cannot attach to the JVM: {e}"))?;
         let activity = JObject::from_raw(app.activity_as_ptr().cast());
-        install(&mut env, &activity, bytes, version)
+        let uri = save_to_downloads(&mut env, &activity, bytes, version)?;
+        uri_text(&mut env, &uri)
     }
+}
+
+/// Opens the system installer for the APK at the `content://` URI `uri`
+/// (what [`save_apk_to_downloads`] returned). `startActivity` must run on
+/// the Java main thread — the SAF picker runs its `startActivityForResult`
+/// there too; from the app's own thread the launch can take the process
+/// down. The launch is sent to the main thread and this waits (up to 15 s)
+/// for its result.
+pub fn open_installer(app: &AndroidApp, uri: &str) -> Result<(), String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let app = app.clone();
+    let uri = uri.to_owned();
+    app.run_on_java_main_thread(Box::new(move || {
+        let result = with_env(|env, activity| open(env, activity, &uri));
+        if let Err(err) = &result {
+            crate::log(&format!("installer: {err}"));
+        }
+        let _ = sender.send(result);
+    }));
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(15))
+        .unwrap_or_else(|_| Err("the installer did not answer".to_owned()))
 }
 
 /// The names of the update APKs sitting in `Download/MusicCraft/`, for the
@@ -65,13 +93,9 @@ pub fn delete_downloaded_apk(app: &AndroidApp, name: &str) -> Result<(), String>
     }
 }
 
-fn install<'local>(
-    env: &mut JNIEnv<'local>,
-    activity: &JObject,
-    bytes: &[u8],
-    version: &str,
-) -> Result<(), String> {
-    let uri = save_to_downloads(env, activity, bytes, version)?;
+/// Opens the system installer for the APK at `uri` (`content://…` as text).
+/// Runs on the Java main thread (see [`open_installer`]).
+fn open(env: &mut JNIEnv<'_>, activity: &JObject, uri: &str) -> Result<(), String> {
     let action_view = env.get_static_field(
         "android/content/Intent",
         "ACTION_VIEW",
@@ -80,17 +104,28 @@ fn install<'local>(
     let action = take(env, action_view)?;
     let mime_call = env.new_string(MIME_APK);
     let mime: JObject = checked(env, mime_call)?.into();
+    let uri_call = env.new_string(uri);
+    let uri: JObject = checked(env, uri_call)?.into();
+    let parse = env.call_static_method(
+        "android/net/Uri",
+        "parse",
+        "(Ljava/lang/String;)Landroid/net/Uri;",
+        &[JValue::Object(&uri)],
+    );
+    let parsed = take(env, parse)?;
+    // A plain action intent: the data and type are set below, so the
+    // constructor never sees a `String` where a `Uri` belongs.
     let new_intent = env.new_object(
         "android/content/Intent",
-        "(Ljava/lang/String;Landroid/net/Uri;)V",
-        &[JValue::Object(&action), JValue::Object(&mime)],
+        "(Ljava/lang/String;)V",
+        &[JValue::Object(&action)],
     );
     let intent = checked(env, new_intent)?;
     let set_data = env.call_method(
         &intent,
         "setDataAndType",
         "(Landroid/net/Uri;Ljava/lang/String;)Landroid/content/Intent;",
-        &[JValue::Object(&uri), JValue::Object(&mime)],
+        &[JValue::Object(&parsed), JValue::Object(&mime)],
     );
     checked(env, set_data)?;
     let add_flags = env.call_method(
@@ -185,6 +220,17 @@ fn put_string<'local>(
     );
     checked(env, put)?;
     Ok(())
+}
+
+/// A content URI as text, so it can cross to the Java main thread (local
+/// references cannot).
+fn uri_text(env: &mut JNIEnv<'_>, uri: &JObject) -> Result<String, String> {
+    let call = env.call_method(uri, "toString", "()Ljava/lang/String;", &[]);
+    let text = take(env, call)?;
+    let string = JString::from(text);
+    env.get_string(&string)
+        .map(|text| text.to_string_lossy().into_owned())
+        .map_err(|e| format!("JNI: {e}"))
 }
 
 /// The content resolver the activity's MediaStore calls go through.

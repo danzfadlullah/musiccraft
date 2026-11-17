@@ -161,8 +161,27 @@ impl Updater {
         #[cfg(target_os = "android")]
         if let Some((bytes, version)) = self.ready.lock().unwrap().take() {
             let installer = crate::android::app_handle().and_then(|app| {
-                match musiccraft_android_java::install_apk(&app, &bytes, &version) {
-                    Ok(()) => Some(()),
+                // Each step logs: the log file survives a crash, so it names
+                // the step that took the app down.
+                let uri =
+                    match musiccraft_android_java::save_apk_to_downloads(&app, &bytes, &version) {
+                        Ok(uri) => {
+                            crate::log("update: the APK is in the Downloads folder");
+                            uri
+                        }
+                        Err(err) => {
+                            crate::log(&format!(
+                                "update: the APK could not be saved for the installer: {err}"
+                            ));
+                            return None;
+                        }
+                    };
+                crate::log("update: opening the installer");
+                match musiccraft_android_java::open_installer(&app, &uri) {
+                    Ok(()) => {
+                        crate::log("update: the system installer is open");
+                        Some(())
+                    }
                     Err(err) => {
                         crate::log(&format!("update: the installer did not open: {err}"));
                         None
