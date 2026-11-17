@@ -2891,6 +2891,55 @@ fn a_long_soundfont_note_sustains_over_its_loop() {
 }
 
 #[test]
+fn a_bend_during_a_sustained_note_bends_it() {
+    let font = std::env::temp_dir().join("probe-timgm.sf2");
+    let font_path = font.display().to_string();
+    let mut mid = b"MThd".to_vec();
+    mid.extend(6_u32.to_be_bytes());
+    mid.extend(0_u16.to_be_bytes());
+    mid.extend(1_u16.to_be_bytes());
+    mid.extend(96_u16.to_be_bytes());
+    mid.extend(b"MTrk");
+    let track = [
+        vec![0x00, 0x90, 60, 100],
+        vec![0x81, 0x40, 0xe0, 0x00, 0x7f], // at tick 192: bend up two semitones
+        vec![0x81, 0x40, 0x80, 60, 0],      // at tick 384: note off
+        vec![0x00, 0xff, 0x2f, 0x00],
+    ]
+    .concat();
+    mid.extend((track.len() as u32).to_be_bytes());
+    mid.extend(track);
+    let path = std::env::temp_dir().join("probe-bend-midnote.mid");
+    std::fs::write(&path, mid).unwrap();
+    let mut s = session();
+    run(
+        &mut s,
+        &format!(
+            "project.set_tempo 120\n         channel.add_soundfont {font_path} 26\n         note.import_midi 1 \"{}\"",
+            path.display()
+        ),
+    );
+    let (left, _, warnings) = render(s.project(), RenderOptions::default());
+    assert!(warnings.is_empty());
+    let crossings = |from: usize, to: usize| -> f32 {
+        left[from..to]
+            .windows(2)
+            .filter(|w| w[0] * w[1] < 0.0)
+            .count() as f32
+    };
+    let second = 48_000;
+    // 120 bpm: the bend lands one second in; the note ends at two seconds.
+    let before = crossings(second / 5, 9 * second / 10);
+    let after = crossings(11 * second / 10, 9 * second / 5);
+    let ratio = after / before;
+    let expected = 2.0_f32.powf(2.0 / 12.0);
+    assert!(
+        (ratio - expected).abs() < 0.05 * expected,
+        "before {before} after {after}: ratio {ratio}, expected {expected}"
+    );
+}
+
+#[test]
 fn imported_pitch_bends_bend_the_sound() {
     use musiccraft_commands::Registry;
     let registry = || {

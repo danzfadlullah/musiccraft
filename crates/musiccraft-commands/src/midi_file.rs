@@ -37,19 +37,60 @@ pub(crate) struct MidiFile {
     /// Per MIDI channel (0-15) what [`PartInfo`] records.
     pub parts: BTreeMap<u8, PartInfo>,
     /// Per MIDI channel (0-15), the channel's pitch bends as (tick,
-    /// semitones) in the General MIDI ±2-semitone range, sorted by tick with
-    /// repeats collapsed. A bend moves every sounding note of its channel,
-    /// like a MIDI player's.
+    /// semitones), sorted by tick with repeats collapsed. Each channel's bend
+    /// range is its own RPN 0 setting (the General MIDI default ±2 semitones
+    /// when the file sets none). A bend moves every sounding note of its
+    /// channel, like a MIDI player's.
     pub bends: BTreeMap<u8, Vec<(u64, f32)>>,
 }
 
 /// Most bend points one channel keeps; denser curves are thinned.
 const MAX_BEND_POINTS: usize = 20_000;
 
-/// A 14-bit pitch-bend value as semitones, in the General MIDI default
-/// range of ±2 semitones.
-fn bend_semitones(value: u16) -> f32 {
-    (f32::from(value) - 8192.0) / 8192.0 * 2.0
+/// A 14-bit pitch-bend value as semitones, over the channel's bend range.
+fn bend_semitones(value: u16, range: f32) -> f32 {
+    (f32::from(value) - 8192.0) / 8192.0 * range
+}
+
+/// A channel's RPN state while a track plays: the selected RPN's MSB and LSB,
+/// its bend range in semitones (the General MIDI default ±2), and the coarse
+/// data-entry value waiting for the fine one.
+#[derive(Clone, Copy)]
+struct Rpn {
+    selected: u16,
+    range: f32,
+    coarse: u8,
+}
+
+impl Default for Rpn {
+    fn default() -> Self {
+        Self {
+            selected: u16::MAX,
+            range: 2.0,
+            coarse: 0,
+        }
+    }
+}
+
+impl Rpn {
+    /// Applies one controller, updating the bend range on RPN 0 (pitch-bend
+    /// range): data-entry coarse sets whole semitones, fine adds cents.
+    fn control(&mut self, controller: u8, value: u8) {
+        match controller {
+            101 => self.selected = (self.selected & 0xff) | (u16::from(value) << 8),
+            100 => self.selected = (self.selected & 0xff00) | u16::from(value),
+            6 => {
+                self.coarse = value;
+                if self.selected == 0 {
+                    self.range = f32::from(value);
+                }
+            }
+            38 if self.selected == 0 => {
+                self.range = f32::from(self.coarse) + f32::from(value) / 100.0;
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Most notes accepted from one file.
@@ -115,6 +156,7 @@ fn read_track(
     let mut r = Reader { data, pos: 0 };
     let mut time = 0_u64;
     let mut running: Option<u8> = None;
+    let mut rpns = [Rpn::default(); 16];
     // Sounding notes: (channel, key) → (start, velocity), oldest first.
     let mut open: Vec<(u8, u8, u64, u8)> = Vec::new();
     // This track's name (meta 0x03), kept for the channels that sound in it.
@@ -199,6 +241,7 @@ fn read_track(
                             10 => part.pan = Some(value),
                             _ => {}
                         }
+                        rpns[usize::from(channel)].control(controller, value);
                     }
                     0xc0 => {
                         let program = r.byte()?;
@@ -211,10 +254,11 @@ fn read_track(
                         let lsb = r.byte()?;
                         let msb = r.byte()?;
                         let value = (u16::from(msb & 0x7f) << 7) | u16::from(lsb & 0x7f);
+                        let range = rpns[usize::from(channel)].range;
                         bends
                             .entry(channel)
                             .or_default()
-                            .push((time, bend_semitones(value)));
+                            .push((time, bend_semitones(value, range)));
                     }
                     _ => {
                         r.bytes(1)?;
@@ -599,5 +643,38 @@ pub(crate) mod tests {
         assert_eq!(bends.len(), 2);
         assert_eq!(bends[0], (0, 1.0));
         assert_eq!(bends[1], (48, 0.0));
+    }
+
+    #[test]
+    fn reads_the_channels_rpn_bend_range() {
+        // RPN 0 (pitch-bend range) set to 12 semitones, then a full-up bend:
+        // without the RPN the same bend is the General MIDI default ±2.
+        let full_up = |range: f32| (16383.0 - 8192.0) / 8192.0 * range;
+        let track = vec![
+            0x00, 0xb0, 101, 0, // RPN MSB 0
+            0x00, 0xb0, 100, 0, // RPN LSB 0
+            0x00, 0xb0, 6, 12, // data entry coarse: ±12 semitones
+            0x00, 0xb0, 38, 50, // data entry fine: half a semitone
+            0x00, 0xe0, 0x7f, 0x7f, // bend full up
+            0x00, 0xff, 0x2f, 0x00, // end of track
+        ];
+        let file = parse(&smf(96, &track)).unwrap();
+        let (tick, semitones) = file.bends[&0][0];
+        assert_eq!(tick, 0);
+        assert!((semitones - full_up(12.5)).abs() < 1e-4, "{semitones}");
+
+        // A different channel keeps the default range.
+        let track = vec![
+            0x00, 0xb1, 101, 0, // channel 1 selects RPN 0
+            0x00, 0xb1, 100, 0, 0x00, 0xb1, 6, 7, 0x00, 0xe0, 0x7f,
+            0x7f, // channel 0 bends full up: still ±2
+            0x00, 0xe1, 0x7f, 0x7f, // channel 1 bends full up: ±7
+            0x00, 0xff, 0x2f, 0x00,
+        ];
+        let file = parse(&smf(96, &track)).unwrap();
+        let (_, home) = file.bends[&0][0];
+        assert!((home - full_up(2.0)).abs() < 1e-4, "{home}");
+        let (_, ranged) = file.bends[&1][0];
+        assert!((ranged - full_up(7.0)).abs() < 1e-4, "{ranged}");
     }
 }

@@ -1803,18 +1803,19 @@ fn import_midi_turns_pitch_bends_into_pitch_automation() {
         }
     );
     let points: Vec<_> = lanes[0].points.iter().map(|p| (p.tick, p.value)).collect();
-    // The lane spans the whole pattern: home from tick 0, the bend, then
-    // home held to just short of the pattern's end, so the engine never
-    // skips the bend.
+    // The lane spans the whole pattern and holds like a player: home from
+    // tick 0 until one tick before the bend, the bend, home again after the
+    // second bend, held to just short of the pattern's end so the engine
+    // never skips it. Straight segments would glide between the bends
+    // instead of holding.
+    // The bend back home sits at the pattern's very end, where lanes drop
+    // points, so the bent value holds to just short of the end instead.
+    let end = s.project().current_pattern().length_ticks() - 1;
     assert_eq!(
         points,
-        [
-            (0, 0.5),
-            (192, 49.0 / 96.0),
-            (s.project().current_pattern().length_ticks() - 1, 0.5)
-        ]
+        [(0, 0.5), (191, 0.5), (192, 49.0 / 96.0), (end, 49.0 / 96.0)]
     );
-    assert!((points[1].1 - 49.0 / 96.0).abs() < 1e-5, "a semitone up");
+    assert!((points[2].1 - 49.0 / 96.0).abs() < 1e-5, "a semitone up");
     // The undo restores the pattern's automation too.
     run(&mut s, "edit.undo");
     assert!(s.project().current_pattern().automation.is_empty());

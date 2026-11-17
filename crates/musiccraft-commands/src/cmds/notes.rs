@@ -813,7 +813,8 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
 /// range; a channel that never leaves home gets no lane. The lane spans the
 /// whole pattern (`ends`, in ticks): the engine reads lanes at block ends, so
 /// a bend at the very start would otherwise be skipped, and a player holds a
-/// bend until the next one.
+/// bend until the next one — the lane repeats each value one tick before the
+/// next point, because straight-line lanes would glide there instead.
 fn bend_lane(
     id: ChannelId,
     bends: Option<&Vec<(u64, f32)>>,
@@ -828,23 +829,27 @@ fn bend_lane(
         return None;
     }
     const HOME: f32 = 0.5;
-    let mut points: Vec<AutomationPoint> = bends
-        .iter()
-        .map(|(tick, semitones)| {
-            AutomationPoint::new(convert(*tick), (semitones.clamp(-24.0, 24.0) + 48.0) / 96.0)
-        })
-        .collect();
-    if points[0].tick > 0 {
-        points.insert(0, AutomationPoint::new(0, HOME));
+    let mut points: Vec<AutomationPoint> = Vec::new();
+    if bends.first().is_some_and(|(tick, _)| convert(*tick) > 0) {
+        points.push(AutomationPoint::new(0, HOME));
+    }
+    for (tick, semitones) in bends {
+        let value = (semitones.clamp(-24.0, 24.0) + 48.0) / 96.0;
+        let at = convert(*tick);
+        if let Some(last) = points.last() {
+            let hold = at.saturating_sub(1).max(last.tick);
+            if hold > last.tick {
+                points.push(AutomationPoint::new(hold, last.value));
+            }
+        }
+        points.push(AutomationPoint::new(at, value));
     }
     // One tick short of the end: lanes drop points at the pattern's very
-    // end, so a bend there would never sound; it holds instead.
+    // end, so a bend there would never sound; the last value holds instead.
+    // A bend past the pattern drops outright, so it cannot overwrite the
+    // hold of the value before it.
     let hold = ends.saturating_sub(1);
-    for point in &mut points {
-        if point.tick >= hold {
-            point.tick = hold;
-        }
-    }
+    points.retain(|point| point.tick <= hold);
     points.dedup_by(|a, b| {
         if a.tick == b.tick {
             b.value = a.value;
