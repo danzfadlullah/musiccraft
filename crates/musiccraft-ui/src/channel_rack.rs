@@ -831,6 +831,25 @@ fn channel_items(
             ui.close();
         }
     }
+    ui.menu_button("Change instrument", |ui| {
+        for (label, kind) in [
+            ("Synth", "synth"),
+            ("Drum synth", "drumsynth"),
+            ("Pluck", "pluck"),
+            ("FM", "fm"),
+            ("Keys", "keys"),
+            ("Additive", "additive"),
+        ] {
+            if ui.button(label).clicked() {
+                run(
+                    actions,
+                    "channel.set_instrument",
+                    [number.clone(), kind.to_owned()],
+                );
+                ui.close();
+            }
+        }
+    });
     ui.menu_button("Colour", |ui| {
         if let Some(choice) = crate::swatches::grid(ui, channel.color) {
             run(

@@ -1664,11 +1664,7 @@ fn import_midi_opens_a_channel_per_midi_channel() {
         "{}",
         s.project().channels[1].name
     );
-    assert!(
-        s.project().channels[2].name.ends_with(" 10"),
-        "{}",
-        s.project().channels[2].name
-    );
+    assert_eq!(s.project().channels[2].name, "Drums");
     let by_channel: Vec<(usize, Vec<u8>)> = (1..3)
         .map(|c| {
             let id = s.project().channels[c].id;
@@ -1689,6 +1685,60 @@ fn import_midi_opens_a_channel_per_midi_channel() {
     assert_eq!(s.project().channels.len(), 1);
     assert_eq!(s.project().current_pattern().notes.len(), 0);
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn import_midi_keeps_the_file_volume_pan_name_and_tempo() {
+    use crate::midi_file::tests::{named_track, smf};
+    let path = std::env::temp_dir().join(format!("musiccraft-faithful-{}.mid", std::process::id()));
+    std::fs::write(&path, smf(192, &named_track())).unwrap();
+    let mut s = session();
+    run(&mut s, "channel.add_synth");
+    run(&mut s, "project.set_tempo 140");
+    run(
+        &mut s,
+        &format!("note.import_midi 1 \"{}\"", path.display()),
+    );
+    let channel = &s.project().channels[1];
+    assert_eq!(channel.name, "Melody");
+    assert!((channel.volume - 1.0).abs() < 1e-6);
+    assert!((channel.pan - 1.0).abs() < 1e-6);
+    assert_eq!(s.project().channels[2].name, "Drums");
+    assert!((s.project().tempo_bpm() - 120.0).abs() < 1e-6);
+    run(&mut s, "edit.undo");
+    assert_eq!(s.project().channels.len(), 1);
+    assert!((s.project().tempo_bpm() - 140.0).abs() < 1e-6);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn set_instrument_swaps_the_sound_and_keeps_the_channel() {
+    let mut s = session();
+    run(&mut s, "channel.add_synth Lead");
+    run(&mut s, "channel.set_volume 1 0.5");
+    run(&mut s, "note.add 1 0 4 C5");
+    let before = s.project().channels[0].params;
+    run(&mut s, "channel.set_instrument 1 pluck");
+    let channel = &s.project().channels[0];
+    assert_eq!(channel.name, "Lead");
+    assert!((channel.volume - 0.5).abs() < 1e-6);
+    assert!(matches!(channel.instrument, Instrument::Pluck));
+    run(&mut s, "channel.set_instrument 1 drumsynth");
+    assert!(matches!(
+        s.project().channels[0].instrument,
+        Instrument::DrumSynth
+    ));
+    run(&mut s, "edit.undo");
+    assert!(matches!(
+        s.project().channels[0].instrument,
+        Instrument::Pluck
+    ));
+    run(&mut s, "edit.undo");
+    let channel = &s.project().channels[0];
+    assert!(matches!(channel.instrument, Instrument::Synth));
+    assert_eq!(channel.params, before);
+    assert_eq!(s.project().current_pattern().notes.len(), 1);
+    fails(&mut s, "channel.set_instrument 1 piano");
 }
 
 #[test]

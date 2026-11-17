@@ -23,6 +23,12 @@
   granular or resynth channel. When the channel's name is still the default
   name of its old sample (the file stem or built-in sound's name), the name
   follows the new sample; a name the user typed is kept. Undo restores both.
+- `channel.set_instrument <n> <synth|drumsynth|pluck|fm|keys|additive>` replaces
+  a channel's instrument: the new one starts from its default parameters, and
+  the channel's name, volume, pan, notes and everything else stay. Undo
+  restores the previous instrument and its parameters exactly (the inverse
+  carries them as a JSON `{instrument, params}` object, the same command's
+  sixth form). UI: right-click a channel → Change instrument ▸.
 - `channel.swap_sound <a> <b>` swaps the sounds of two channels: their names,
   instruments and instrument parameters. Everything else (steps and notes,
   volume, pan, mute and solo, mixer track, group, colour, the place in the
@@ -109,7 +115,7 @@
   that channel one slot per notch (`channel.move`, as Alt+Up / Alt+Down).
 - Right-clicking a channel's name opens its menu in two columns. First: Open
   in piano roll, Channel settings; Rename…, Change sample… (samplers),
-  Colour ▸, Group…; Clone, Delete. Second: Cut steps, Copy steps, Paste
+  Change instrument ▸, Colour ▸, Group…; Clone, Delete. Second: Cut steps, Copy steps, Paste
   steps (the same as Ctrl+X / C / V over the rack, for this channel), Clear
   notes in pattern; Turn on every 2nd / 4th / 8th step; Shift left, Shift
   right; Graph editor (selects the channel and opens the graph), Solo, Move

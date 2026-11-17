@@ -103,6 +103,12 @@ pub(super) fn commands() -> Vec<Box<dyn Command>> {
             set_midi_channel,
         ),
         cmd(
+            "channel.set_instrument",
+            "channel.set_instrument <channel> <synth|drumsynth|pluck|fm|keys|additive|json>",
+            "Replace a channel's instrument (volume, pan, name and notes stay). A JSON object \"{instrument, params}\" restores a previous instrument.",
+            set_instrument,
+        ),
+        cmd(
             "channel.remove",
             "channel.remove <channel>",
             "Remove a channel and its notes in every pattern.",
@@ -446,6 +452,72 @@ fn add_keys(project: &mut Project, args: &Args<'_>) -> Result<Outcome, CommandEr
         channel.params.0[musiccraft_project::params::inst::RELEASE] = 0.05;
     }
     Ok(push_channel(project, channel))
+}
+
+/// The instruments a channel can switch to by name, in menu order.
+const SETTABLE: [&str; 6] = ["synth", "drumsynth", "pluck", "fm", "keys", "additive"];
+
+/// A channel's instrument and its parameters, for the undo of
+/// `channel.set_instrument`.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct InstrumentSnapshot {
+    instrument: Instrument,
+    params: musiccraft_project::InstrumentParams,
+}
+
+fn set_instrument(project: &mut Project, args: &Args<'_>) -> Result<Outcome, CommandError> {
+    args.expect(2, 2)?;
+    let index = channel_arg(project, args, 0)?;
+    let kind = args.str(1)?;
+    let old = InstrumentSnapshot {
+        instrument: project.channels[index].instrument.clone(),
+        params: project.channels[index].params,
+    };
+    let (instrument, params) = if let Ok(rest) = serde_json::from_str::<InstrumentSnapshot>(kind) {
+        (rest.instrument, rest.params)
+    } else {
+        match kind {
+            "synth" => (
+                Instrument::Synth,
+                musiccraft_project::InstrumentParams::default(),
+            ),
+            "drumsynth" => (
+                Instrument::DrumSynth,
+                musiccraft_project::InstrumentParams::default(),
+            ),
+            "pluck" => (
+                Instrument::Pluck,
+                musiccraft_project::InstrumentParams::default(),
+            ),
+            "fm" => (
+                Instrument::Fm,
+                musiccraft_project::InstrumentParams::default(),
+            ),
+            "keys" => (
+                Instrument::Keys,
+                musiccraft_project::InstrumentParams::default(),
+            ),
+            "additive" => (
+                Instrument::Additive,
+                musiccraft_project::InstrumentParams::default(),
+            ),
+            other => {
+                return Err(args.invalid(format!(
+                    "unknown instrument `{other}`; choose from {}",
+                    SETTABLE.join(", ")
+                )));
+            }
+        }
+    };
+    let label = instrument.label().to_owned();
+    let channel = &mut project.channels[index];
+    channel.instrument = instrument;
+    channel.params = params;
+    let json = serde_json::to_string(&old).map_err(|e| args.invalid(e.to_string()))?;
+    Ok(Outcome::undoable(
+        format!("channel {} plays {}", index + 1, label),
+        Invocation::new("channel.set_instrument", [(index + 1).to_string(), json]),
+    ))
 }
 
 fn add_resynth(project: &mut Project, args: &Args<'_>) -> Result<Outcome, CommandError> {
