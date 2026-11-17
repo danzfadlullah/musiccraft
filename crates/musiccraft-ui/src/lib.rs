@@ -668,6 +668,9 @@ pub struct UiState {
     /// The update pop-up's "Later": the build the user deferred, so a
     /// different build opens the pop-up again.
     pub(crate) update_dismissed: Option<String>,
+    /// The user asked for the update from the pop-up, so its failures and
+    /// result belong there too (an automatic check's failure stays quiet).
+    pub(crate) update_install_requested: bool,
     /// A name being renamed where it is drawn.
     renaming: Option<dialogs::InPlace>,
     antiserum: antiserum::AntiserumUi,
@@ -770,6 +773,7 @@ impl UiState {
             dialog: None,
             file_pick: None,
             update_dismissed: None,
+            update_install_requested: false,
             antiserum: antiserum::AntiserumUi::default(),
         }
     }

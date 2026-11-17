@@ -1026,58 +1026,150 @@ fn updates(ui: &mut egui::Ui, info: &UpdateInfo, actions: &mut Vec<Action>) {
 }
 
 /// The update pop-up: when a newer build is published, a small window offers
-/// it wherever the user is, not only inside Settings. "Later" keeps it quiet
-/// until yet another build appears.
+/// it wherever the user is, not only inside Settings, and then follows the
+/// whole install: download progress, the installer opening and the result.
+/// "Later" keeps the offer quiet until yet another build appears; a failure
+/// only shows here when the user started the update from this pop-up.
 pub fn update_popup(
     state: &mut UiState,
     ctx: &egui::Context,
     info: &UpdateInfo,
     actions: &mut Vec<Action>,
 ) {
-    let UpdateStatus::Available {
-        version,
-        changes,
-        build,
-        published,
-        size,
-    } = &info.status
-    else {
+    let content = match &info.status {
+        UpdateStatus::Available {
+            version,
+            changes,
+            build,
+            published,
+            size,
+        } => {
+            if state.update_dismissed.as_deref() == Some(build) {
+                return;
+            }
+            let what = if version.is_empty() {
+                format!("build {build}")
+            } else {
+                format!("version {version} (build {build})")
+            };
+            Some(Content::Offer {
+                what,
+                published: published.clone(),
+                size: *size,
+                changes: changes.to_vec(),
+                build: build.clone(),
+            })
+        }
+        UpdateStatus::Downloading { progress } => Some(Content::Progress(*progress)),
+        UpdateStatus::Installing => Some(Content::Installing),
+        UpdateStatus::Ready { note } => {
+            if state.update_dismissed.as_deref() == Some("done") {
+                return;
+            }
+            Some(Content::Ready(note.clone()))
+        }
+        UpdateStatus::Failed(err) if state.update_install_requested => {
+            Some(Content::Failed(err.clone()))
+        }
+        _ => return,
+    };
+    let Some(content) = content else {
         return;
     };
-    if state.update_dismissed.as_deref() == Some(build) {
-        return;
-    }
-    let what = if version.is_empty() {
-        format!("build {build}")
-    } else {
-        format!("version {version} (build {build})")
-    };
-    egui::Window::new("Update available")
+    egui::Window::new(content.title())
         .id(egui::Id::new("update-popup"))
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            ui.label(format!(
-                "A newer build is published: {what} ({published}, {:.1} MB).",
-                *size as f64 / 1e6
-            ));
-            changelog(ui, changes);
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if ui.button("Download and install").clicked() {
-                    actions.push(Action::InstallUpdate);
+        .show(ctx, |ui| match content {
+            Content::Offer {
+                what,
+                published,
+                size,
+                changes,
+                build,
+            } => {
+                ui.label(format!(
+                    "A newer build is published: {what} ({published}, {:.1} MB).",
+                    size as f64 / 1e6
+                ));
+                changelog(ui, &changes);
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Download and install").clicked() {
+                        state.update_install_requested = true;
+                        actions.push(Action::InstallUpdate);
+                    }
+                    if ui.button("Later").clicked() {
+                        state.update_dismissed = Some(build);
+                    }
+                });
+                ui.add_space(4.0);
+                ui.label(
+                    "Android opens its installer to confirm; the new build \
+                     replaces this one in place.",
+                );
+            }
+            Content::Progress(progress) => {
+                ui.add(egui::ProgressBar::new(progress).show_percentage());
+                ui.label("Downloading the update…");
+            }
+            Content::Installing => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Opening the installer…");
+                });
+            }
+            Content::Ready(note) => {
+                if note.is_empty() {
+                    ui.label("The installer is open: confirm to install the update.");
+                } else {
+                    ui.label(note);
                 }
-                if ui.button("Later").clicked() {
-                    state.update_dismissed = Some(build.clone());
+                ui.add_space(8.0);
+                if ui.button("Close").clicked() {
+                    state.update_dismissed = Some("done".to_owned());
                 }
-            });
-            ui.add_space(4.0);
-            ui.label(
-                "Android opens its installer to confirm; the new build \
-                 replaces this one in place.",
-            );
+            }
+            Content::Failed(err) => {
+                ui.colored_label(egui::Color32::LIGHT_RED, err);
+                ui.add_space(8.0);
+                if ui.button("Close").clicked() {
+                    state.update_install_requested = false;
+                }
+            }
         });
+}
+
+/// What the update pop-up draws for the current status.
+enum Content {
+    /// A newer build is published: its name, publish date, size, changelog
+    /// and short commit.
+    Offer {
+        what: String,
+        published: String,
+        size: u64,
+        changes: Vec<String>,
+        build: String,
+    },
+    /// The APK is downloading, 0 to 1.
+    Progress(f32),
+    /// The app is opening the system installer.
+    Installing,
+    /// The installer is on screen, or the note says where the APK is.
+    Ready(String),
+    /// The update the user asked for in this pop-up failed.
+    Failed(String),
+}
+
+impl Content {
+    fn title(&self) -> &'static str {
+        match self {
+            Self::Offer { .. } => "Update available",
+            Self::Failed(_) => "Update failed",
+            _ => "Updating",
+        }
+    }
 }
 
 /// Draws a release's changelog, if the notes carried one.
