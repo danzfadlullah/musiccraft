@@ -138,15 +138,16 @@ impl<'a> Reader<'a> {
 /// One `op amount` pair from a generator chunk.
 type Generators = Vec<(u16, u16)>;
 
-/// The generator operators a zone reads (`sfGenOper` values from the spec).
-const GEN_INSTRUMENT: u16 = 38;
-const GEN_KEY_RANGE: u16 = 40;
-const GEN_VEL_RANGE: u16 = 42;
-const GEN_COARSE_TUNE: u16 = 52;
-const GEN_FINE_TUNE: u16 = 53;
-const GEN_SAMPLE_ID: u16 = 54;
-const GEN_SAMPLE_MODES: u16 = 55;
-const GEN_ROOT_KEY: u16 = 59;
+/// The generator operators a zone reads (`sfGenOper`, SoundFont 2.01 spec
+/// §8.1.3, matching fluidsynth's `gen.h`).
+const GEN_INSTRUMENT: u16 = 41;
+const GEN_KEY_RANGE: u16 = 43;
+const GEN_VEL_RANGE: u16 = 44;
+const GEN_COARSE_TUNE: u16 = 51;
+const GEN_FINE_TUNE: u16 = 52;
+const GEN_SAMPLE_ID: u16 = 53;
+const GEN_SAMPLE_MODES: u16 = 54;
+const GEN_ROOT_KEY: u16 = 58;
 
 /// A generator list entry's byte size.
 const GEN_SIZE: usize = 4;
