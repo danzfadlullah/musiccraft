@@ -1622,3 +1622,54 @@ fn midi_out_sends_controls_and_program_when_they_change() {
         "unchanged values are not resent"
     );
 }
+
+#[test]
+fn a_pitch_lane_bends_a_zones_voice() {
+    let run = |semitones: f32| -> usize {
+        let (mut engine, _handle) = engine_pair(SR);
+        let mut graph = Graph::new();
+        let tone = Arc::new(SampleBuffer::mono(
+            (0..SR * 2)
+                .map(|i| (i as f32 * 440.0 * std::f32::consts::TAU / SR as f32).sin() * 0.5)
+                .collect(),
+            f64::from(SR),
+        ));
+        graph.add_channel(
+            Instrument::Zones(vec![crate::Zone {
+                buffer: tone,
+                low: 0,
+                high: 127,
+                root: 60,
+                vel_low: 0,
+                vel_high: 127,
+                loop_start: 0,
+                loop_end: 0,
+            }]),
+            impulse_params(),
+        );
+        engine.apply(EngineMessage::SetGraph(Box::new(graph)));
+        engine.apply(EngineMessage::SetTempo(120.0));
+        let mut sequence = Sequence::new(vec![note(0, 0)], 4 * u64::from(PPQ));
+        if semitones != 0.0 {
+            // The lane spans the note: the engine reads lanes at block ends,
+            // so a single instant would never be read. Points are in real
+            // units, here semitones.
+            let lane = AutomationLane {
+                target: AutomationTarget::ChannelParam(0, inst::PITCH as u8),
+                points: vec![(0, semitones), (4 * u64::from(PPQ), semitones)],
+            };
+            sequence = sequence.with_automation(vec![lane]);
+        }
+        engine.apply(EngineMessage::SetSequence(Box::new(sequence)));
+        engine.apply(EngineMessage::Play);
+        let out = render_mono(&mut engine, BEAT);
+        out.windows(2).filter(|w| w[0] * w[1] < 0.0).count()
+    };
+    let plain = run(0.0);
+    let bent = run(12.0);
+    // An octave up sounds twice the cycles.
+    assert!(
+        (bent as f32 / plain as f32 - 2.0).abs() < 0.1,
+        "plain {plain} bent {bent}"
+    );
+}

@@ -1776,6 +1776,74 @@ fn import_midi_plays_a_loaded_soundfonts_gm_presets() {
 }
 
 #[test]
+fn import_midi_turns_pitch_bends_into_pitch_automation() {
+    use crate::midi_file::tests::smf;
+    let track = vec![
+        0x00, 0x90, 60, 100, // C on
+        0x81, 0x40, 0x80, 60, 0, // after 192 ticks: C off
+        0x00, 0xe0, 0x00, 0x60, // bend up a semitone
+        0x81, 0x40, 0xe0, 0x00, 0x40, // after a beat: back home
+        0x00, 0xff, 0x2f, 0x00, // end of track
+    ];
+    let path = std::env::temp_dir().join(format!("musiccraft-bends-{}.mid", std::process::id()));
+    std::fs::write(&path, smf(96, &track)).unwrap();
+    let mut s = session();
+    run(
+        &mut s,
+        &format!("note.import_midi 1 \"{}\"", path.display()),
+    );
+    let id = s.project().channels[0].id;
+    let lanes = &s.project().current_pattern().automation;
+    assert_eq!(lanes.len(), 1);
+    assert_eq!(
+        lanes[0].target,
+        musiccraft_project::AutomationTarget::ChannelParam {
+            channel: id,
+            param: "pitch".to_owned()
+        }
+    );
+    let points: Vec<_> = lanes[0].points.iter().map(|p| (p.tick, p.value)).collect();
+    // The lane spans the whole pattern: home from tick 0, the bend, then
+    // home held to just short of the pattern's end, so the engine never
+    // skips the bend.
+    assert_eq!(
+        points,
+        [
+            (0, 0.5),
+            (192, 49.0 / 96.0),
+            (s.project().current_pattern().length_ticks() - 1, 0.5)
+        ]
+    );
+    assert!((points[1].1 - 49.0 / 96.0).abs() < 1e-5, "a semitone up");
+    // The undo restores the pattern's automation too.
+    run(&mut s, "edit.undo");
+    assert!(s.project().current_pattern().automation.is_empty());
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn import_midi_skips_a_part_that_never_leaves_bend_home() {
+    use crate::midi_file::tests::smf;
+    let track = vec![
+        0x00, 0x90, 60, 100, // C on
+        0x81, 0x40, 0x80, 60, 0, // after 192 ticks: C off
+        0x00, 0xe0, 0x00, 0x40, // bend home
+        0x81, 0x40, 0xe0, 0x00, 0x40, // still home
+        0x00, 0xff, 0x2f, 0x00, // end of track
+    ];
+    let path =
+        std::env::temp_dir().join(format!("musiccraft-flatbends-{}.mid", std::process::id()));
+    std::fs::write(&path, smf(96, &track)).unwrap();
+    let mut s = session();
+    run(
+        &mut s,
+        &format!("note.import_midi 1 \"{}\"", path.display()),
+    );
+    assert!(s.project().current_pattern().automation.is_empty());
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn soundfont_commands_refuse_builtin_when_it_is_not_installed() {
     let mut s = session();
     let err = fails(&mut s, "channel.add_soundfont builtin");

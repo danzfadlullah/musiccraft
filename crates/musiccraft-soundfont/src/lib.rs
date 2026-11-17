@@ -52,7 +52,9 @@ pub struct Preset {
 struct SampleHeader {
     start: usize,
     end: usize,
-    /// The sustain loop, in frames (`0, 0` when the sample does not loop).
+    /// The sustain loop, in frames from the sample's start (`0, 0` when the
+    /// sample does not loop). The file stores the loop as offsets into the
+    /// whole sample pool, so reading moves it back by the sample's start.
     loop_start: u32,
     loop_end: u32,
     sample_rate: u32,
@@ -532,6 +534,10 @@ impl Soundfont {
             let loop_start = reader.u32()?;
             let loop_end = reader.u32()?;
             let sample_rate = reader.u32()?;
+            let length = end.saturating_sub(start) as u32;
+            let first = start as u32;
+            let loop_start = loop_start.saturating_sub(first).min(length);
+            let loop_end = loop_end.saturating_sub(first).min(length);
             let original_pitch = reader.bytes(1)?[0];
             let pitch_correction = reader.bytes(1)?[0] as i8;
             let link = reader.u16()?;
@@ -714,6 +720,8 @@ mod tests {
         name: &str,
         start: u32,
         end: u32,
+        loop_start: u32,
+        loop_end: u32,
         rate: u32,
         pitch: u8,
         correction: i8,
@@ -722,7 +730,7 @@ mod tests {
     ) -> Vec<u8> {
         let mut record = vec![0u8; 20];
         record[..name.len()].copy_from_slice(name.as_bytes());
-        for value in [start, end, start, end, rate] {
+        for value in [start, end, loop_start, loop_end, rate] {
             record.extend_from_slice(&value.to_le_bytes());
         }
         record.push(pitch);
@@ -804,8 +812,8 @@ mod tests {
         } else {
             pcm.len() as u32 / 2
         };
-        let mut shdr = sample_record("Tone", 0, end, 44_100, 60, 0, 0, kind);
-        shdr.extend(sample_record("", 0, 0, 0, 0, 0, 0, 0));
+        let mut shdr = sample_record("Tone", 0, end, 0, end, 44_100, 60, 0, 0, kind);
+        shdr.extend(sample_record("", 0, 0, 0, 0, 0, 0, 0, 0, 0));
         chunk(&mut pdta, b"shdr", &shdr);
         list(&mut file, b"INFO", &info);
         list(&mut file, b"sdta", &sdta);
@@ -858,6 +866,73 @@ mod tests {
         let zone = &off.preset_zones(0).unwrap()[0];
         assert!(!zone.loops);
         assert_eq!((zone.loop_start, zone.loop_end), (0, 0));
+    }
+
+    #[test]
+    fn a_loop_is_relative_to_the_samples_start() {
+        // The file stores the loop as offsets into the whole sample pool;
+        // a font whose sample sits deep in the pool (like TimGM6mb's) must
+        // still read its loop from its own start.
+        let pcm = tone_pcm(44_100, 440.0);
+        let frames = pcm.len() as u32 / 2;
+        let offset = 1_000_000;
+        let mut file = Vec::new();
+        chunk(&mut file, b"RIFF", b"sfbk");
+        let mut info = Vec::new();
+        chunk(&mut info, b"ifil", &[2, 0, 4, 0]);
+        chunk(&mut info, b"INAM", b"Pool font\0");
+        let mut sdta = Vec::new();
+        let mut smpl = vec![0u8; usize::try_from(offset).unwrap() * 2];
+        smpl.extend_from_slice(&pcm);
+        chunk(&mut sdta, b"smpl", &smpl);
+        let mut pdta = Vec::new();
+        let mut phdr = preset_record("Grand", 0, 0, 0);
+        phdr.extend(preset_record("EOP", 0, 0, 1));
+        chunk(&mut pdta, b"phdr", &phdr);
+        let mut pbag = bag(0);
+        pbag.extend(bag(2));
+        chunk(&mut pdta, b"pbag", &pbag);
+        let mut pgen = generator_pair(GEN_INSTRUMENT, 0);
+        pgen.extend(generator_pair(GEN_KEY_RANGE, 36 | (84 << 8)));
+        chunk(&mut pdta, b"pgen", &pgen);
+        let mut inst = instrument_record("Piano", 0);
+        inst.extend(instrument_record("", 2));
+        chunk(&mut pdta, b"inst", &inst);
+        let mut ibag = bag(0);
+        ibag.extend(bag(4));
+        chunk(&mut pdta, b"ibag", &ibag);
+        let mut igen = generator_pair(GEN_SAMPLE_ID, 0);
+        igen.extend(generator_pair(GEN_ROOT_KEY, 60));
+        igen.extend(generator_pair(GEN_SAMPLE_MODES, 1));
+        chunk(&mut pdta, b"igen", &igen);
+        let mut shdr = sample_record(
+            "Tone",
+            offset,
+            offset + frames,
+            offset + frames / 4,
+            offset + frames / 2,
+            44_100,
+            60,
+            0,
+            0,
+            0,
+        );
+        shdr.extend(sample_record("", 0, 0, 0, 0, 0, 0, 0, 0, 0));
+        chunk(&mut pdta, b"shdr", &shdr);
+        list(&mut file, b"INFO", &info);
+        list(&mut file, b"sdta", &sdta);
+        list(&mut file, b"pdta", &pdta);
+        let size = (file.len() - 8) as u32;
+        file[4..8].copy_from_slice(&size.to_le_bytes());
+
+        let font = Soundfont::parse(&file).unwrap();
+        let zone = &font.preset_zones(0).unwrap()[0];
+        assert!(zone.loops);
+        assert_eq!(
+            (zone.loop_start, zone.loop_end),
+            (frames / 4, frames / 2),
+            "the loop counts from the sample's own start"
+        );
     }
 
     #[test]

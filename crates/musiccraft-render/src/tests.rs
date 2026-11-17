@@ -2702,3 +2702,86 @@ fn preset_previews_play_a_held_note_and_are_kept() {
     );
     assert!(bridge.preset_preview("No Such Preset", &project).is_err());
 }
+
+#[test]
+fn a_long_soundfont_note_sustains_over_its_loop() {
+    // A real font whose guitar samples loop near their ends: the note must
+    // hold past the sample's own length instead of dying there.
+    let font = std::env::temp_dir().join("probe-timgm.sf2");
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../musiccraft-default-soundfont/assets/TimGM6mb.sf2"),
+        &font,
+    )
+    .unwrap();
+    let mut s = session();
+    let path = font.display().to_string();
+    run(
+        &mut s,
+        &format!(
+            "project.set_tempo 120\n         channel.add_soundfont {path} 26\n         note.add 1 0 128 60"
+        ),
+    );
+    let (left, _, warnings) = render(s.project(), RenderOptions::default());
+    assert!(warnings.is_empty());
+    let win = 48_000 / 20;
+    let start = rms(&left[..win]);
+    assert!(start > 0.01, "the note sounds at once: {start}");
+    // The zone's sample lasts about 45 ms; a window well past it only has
+    // sound when the sustain loop carries the note.
+    let held = rms(&left[12 * win..13 * win]);
+    assert!(held > 0.5 * start, "the note sustains: {held} vs {start}");
+}
+
+#[test]
+fn imported_pitch_bends_bend_the_sound() {
+    use musiccraft_commands::Registry;
+    let registry = || {
+        let mut registry = Registry::with_builtin();
+        crate::register(&mut registry).unwrap();
+        registry
+    };
+    let font = std::env::temp_dir().join("probe-timgm.sf2");
+    let font_path = font.display().to_string();
+    let bend_track = |msb: u8| {
+        let mut track = vec![0x00, 0x90, 60, 100];
+        track.extend([0x00, 0xe0, 0x00, msb]);
+        track.extend([0x81, 0x40, 0x80, 60, 0]);
+        track.extend([0x00, 0xff, 0x2f, 0x00]);
+        track
+    };
+    let crossings = |msb: u8| -> f32 {
+        let mut mid = b"MThd".to_vec();
+        mid.extend(6_u32.to_be_bytes());
+        mid.extend(0_u16.to_be_bytes());
+        mid.extend(1_u16.to_be_bytes());
+        mid.extend(96_u16.to_be_bytes());
+        mid.extend(b"MTrk");
+        let track = bend_track(msb);
+        mid.extend((track.len() as u32).to_be_bytes());
+        mid.extend(track);
+        let path = std::env::temp_dir().join(format!("probe-bend-{msb}.mid"));
+        std::fs::write(&path, mid).unwrap();
+        let mut s = musiccraft_commands::Session::new(Project::default(), registry());
+        run(
+            &mut s,
+            &format!(
+                "project.set_tempo 120\n         channel.add_soundfont {font_path} 26\n         note.import_midi 1 \"{}\"",
+                path.display()
+            ),
+        );
+        let (left, _, warnings) = render(s.project(), RenderOptions::default());
+        assert!(warnings.is_empty());
+        let window = &left[24_000..48_000];
+        window.windows(2).filter(|w| w[0] * w[1] < 0.0).count() as f32
+    };
+    let home = crossings(0x40);
+    let bent = crossings(0x7f);
+    // msb 0x7f bends up 1.96875 semitones.
+    let ratio = bent / home;
+    let expected = 2.0_f32.powf(1.96875 / 12.0);
+    assert!(
+        (ratio - expected).abs() < 0.05 * expected,
+        "home {home} bent {bent}: ratio {ratio}, expected {expected}"
+    );
+}

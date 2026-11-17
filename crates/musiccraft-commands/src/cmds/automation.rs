@@ -105,7 +105,7 @@ pub(super) fn commands() -> Vec<Box<dyn Command>> {
 }
 
 /// An inverse that restores pattern `index`'s automation exactly.
-fn events_inverse(project: &Project, index: usize) -> Invocation {
+pub(super) fn events_inverse(project: &Project, index: usize) -> Invocation {
     let json = serde_json::to_string(&project.patterns[index].automation)
         .unwrap_or_else(|_| "[]".to_owned());
     Invocation::new("pattern.set_events", [(index + 1).to_string(), json])

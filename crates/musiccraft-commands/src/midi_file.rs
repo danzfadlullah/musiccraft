@@ -36,6 +36,20 @@ pub(crate) struct MidiFile {
     pub tempo_bpm: Option<f64>,
     /// Per MIDI channel (0-15) what [`PartInfo`] records.
     pub parts: BTreeMap<u8, PartInfo>,
+    /// Per MIDI channel (0-15), the channel's pitch bends as (tick,
+    /// semitones) in the General MIDI ±2-semitone range, sorted by tick with
+    /// repeats collapsed. A bend moves every sounding note of its channel,
+    /// like a MIDI player's.
+    pub bends: BTreeMap<u8, Vec<(u64, f32)>>,
+}
+
+/// Most bend points one channel keeps; denser curves are thinned.
+const MAX_BEND_POINTS: usize = 20_000;
+
+/// A 14-bit pitch-bend value as semitones, in the General MIDI default
+/// range of ±2 semitones.
+fn bend_semitones(value: u16) -> f32 {
+    (f32::from(value) - 8192.0) / 8192.0 * 2.0
 }
 
 /// Most notes accepted from one file.
@@ -96,6 +110,7 @@ fn read_track(
     sig: &mut FirstSig,
     tempo: &mut Option<f64>,
     parts: &mut BTreeMap<u8, PartInfo>,
+    bends: &mut BTreeMap<u8, Vec<(u64, f32)>>,
 ) -> Result<(), String> {
     let mut r = Reader { data, pos: 0 };
     let mut time = 0_u64;
@@ -189,8 +204,17 @@ fn read_track(
                         let program = r.byte()?;
                         parts.entry(channel).or_default().program = Some(program);
                     }
-                    0xa0 | 0xe0 => {
+                    0xa0 => {
                         r.bytes(2)?;
+                    }
+                    0xe0 => {
+                        let lsb = r.byte()?;
+                        let msb = r.byte()?;
+                        let value = (u16::from(msb & 0x7f) << 7) | u16::from(lsb & 0x7f);
+                        bends
+                            .entry(channel)
+                            .or_default()
+                            .push((time, bend_semitones(value)));
                     }
                     _ => {
                         r.bytes(1)?;
@@ -236,6 +260,7 @@ pub(crate) fn parse(data: &[u8]) -> Result<MidiFile, String> {
     let mut sig = None;
     let mut tempo = None;
     let mut parts = BTreeMap::new();
+    let mut bends: BTreeMap<u8, Vec<(u64, f32)>> = BTreeMap::new();
     for _ in 0..tracks {
         if r.pos >= data.len() {
             break;
@@ -244,16 +269,31 @@ pub(crate) fn parse(data: &[u8]) -> Result<MidiFile, String> {
         let len = r.u32()? as usize;
         let chunk = r.bytes(len)?;
         if kind == b"MTrk" {
-            read_track(chunk, &mut notes, &mut sig, &mut tempo, &mut parts)?;
+            read_track(
+                chunk, &mut notes, &mut sig, &mut tempo, &mut parts, &mut bends,
+            )?;
         }
     }
     notes.sort_by_key(|n| (n.start, n.key));
+    for points in bends.values_mut() {
+        points.sort_by_key(|(tick, _)| *tick);
+        points.dedup_by(|a, b| a.0 == b.0 || a.1 == b.1);
+        if points.len() > MAX_BEND_POINTS {
+            let stride = points.len().div_ceil(MAX_BEND_POINTS);
+            let last = *points.last().expect("the bend has points");
+            *points = points.iter().step_by(stride).copied().collect();
+            if points.last() != Some(&last) {
+                points.push(last);
+            }
+        }
+    }
     Ok(MidiFile {
         ticks_per_quarter: division,
         notes,
         time_signature: sig.map(|(_, num, den)| (num, den)),
         tempo_bpm: tempo,
         parts,
+        bends,
     })
 }
 
@@ -543,5 +583,21 @@ pub(crate) mod tests {
     fn unterminated_notes_end_with_the_track() {
         let file = parse(&smf(96, &[0x00, 0x90, 50, 64, 0x60, 0xff, 0x2f, 0x00])).unwrap();
         assert_eq!(file.notes[0].length, 96);
+    }
+
+    #[test]
+    fn reads_pitch_bends_as_semitones_and_collapses_repeats() {
+        let track = vec![
+            0x00, 0x90, 60, 100, // C on
+            0x00, 0xe0, 0x00, 0x60, // bend up a semitone (12288 of 16383)
+            0x30, 0xe0, 0x00, 0x40, // after 48 ticks: back home
+            0x30, 0xe0, 0x00, 0x40, // still home: a repeat, dropped
+            0x00, 0xff, 0x2f, 0x00, // end of track
+        ];
+        let file = parse(&smf(96, &track)).unwrap();
+        let bends = &file.bends[&0];
+        assert_eq!(bends.len(), 2);
+        assert_eq!(bends[0], (0, 1.0));
+        assert_eq!(bends[1], (48, 0.0));
     }
 }

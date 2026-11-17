@@ -3,8 +3,9 @@ use std::collections::BTreeMap;
 use musiccraft_project::music::key_name;
 use musiccraft_project::params::TICKS_PER_STEP;
 use musiccraft_project::{
-    Channel, ChannelId, DEFAULT_VELOCITY, Instrument, MAX_PATTERN_STEPS, MAX_TEMPO_BPM,
-    MIN_TEMPO_BPM, Note, Project, ProjectError, STEP_KEY,
+    AutomationPoint, AutomationTarget, Channel, ChannelId, DEFAULT_VELOCITY, Instrument,
+    MAX_PATTERN_STEPS, MAX_TEMPO_BPM, MIN_TEMPO_BPM, Note, PatternLane, Project, ProjectError,
+    STEP_KEY,
 };
 
 use super::channel::{channel_arg, push_channel};
@@ -702,7 +703,7 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
         None => String::new(),
     };
     if let Some(target) = target.filter(|_| groups.len() <= 1) {
-        let imported: Vec<Note> = groups.into_values().next().unwrap_or_default();
+        let (midi_channel, imported) = groups.into_iter().next().unwrap_or((0, Vec::new()));
         let (old, _) = rewrite(project, &target, |mut notes| {
             notes.extend(imported);
             notes
@@ -710,6 +711,15 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
         let mut inverses = vec![target.set_all_inverse(&old)];
         inverses.extend(tempo_inverse);
         inverses.extend(meter_inverse);
+        if let Some(lane) = bend_lane(
+            project.channels[target.channel].id,
+            file.bends.get(&midi_channel),
+            &convert,
+            project.patterns[pattern].length_ticks(),
+        ) {
+            inverses.push(super::automation::events_inverse(project, pattern));
+            project.patterns[pattern].automation.push(lane);
+        }
         let message = format!("imported {count} notes into channel {}", target.channel + 1);
         return Ok(Outcome::undoable(
             format!("{message}{suffix}"),
@@ -764,6 +774,11 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
         }
         push_channel(project, channel);
         let number = project.channels.len();
+        let ends = project.patterns[pattern].length_ticks();
+        if let Some(lane) = bend_lane(id, file.bends.get(&midi_channel), &convert, ends) {
+            inverses.push(super::automation::events_inverse(project, pattern));
+            project.patterns[pattern].automation.push(lane);
+        }
         let pattern = &mut project.patterns[pattern];
         for note in notes {
             pattern.put_note(Note {
@@ -785,6 +800,66 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
         format!("{message}{suffix}"),
         batch(inverses),
     ))
+}
+
+/// The file's pitch bends as a pattern lane on `id` that writes the channel's
+/// `pitch` parameter, so bent and vibratoed parts sound like a MIDI player
+/// plays them. The points are automation positions in the ±48-semitone pitch
+/// range; a channel that never leaves home gets no lane. The lane spans the
+/// whole pattern (`ends`, in ticks): the engine reads lanes at block ends, so
+/// a bend at the very start would otherwise be skipped, and a player holds a
+/// bend until the next one.
+fn bend_lane(
+    id: ChannelId,
+    bends: Option<&Vec<(u64, f32)>>,
+    convert: &impl Fn(u64) -> u32,
+    ends: u32,
+) -> Option<PatternLane> {
+    let bends = bends?;
+    if bends
+        .iter()
+        .all(|(_, semitones)| semitones.abs() < f32::EPSILON)
+    {
+        return None;
+    }
+    const HOME: f32 = 0.5;
+    let mut points: Vec<AutomationPoint> = bends
+        .iter()
+        .map(|(tick, semitones)| {
+            AutomationPoint::new(convert(*tick), (semitones.clamp(-24.0, 24.0) + 48.0) / 96.0)
+        })
+        .collect();
+    if points[0].tick > 0 {
+        points.insert(0, AutomationPoint::new(0, HOME));
+    }
+    // One tick short of the end: lanes drop points at the pattern's very
+    // end, so a bend there would never sound; it holds instead.
+    let hold = ends.saturating_sub(1);
+    for point in &mut points {
+        if point.tick >= hold {
+            point.tick = hold;
+        }
+    }
+    points.dedup_by(|a, b| {
+        if a.tick == b.tick {
+            b.value = a.value;
+            true
+        } else {
+            false
+        }
+    });
+    let last = points.last().expect("the bend points are not empty");
+    if last.tick < hold {
+        let value = last.value;
+        points.push(AutomationPoint::new(hold, value));
+    }
+    Some(PatternLane {
+        target: AutomationTarget::ChannelParam {
+            channel: id,
+            param: "pitch".to_owned(),
+        },
+        points,
+    })
 }
 
 fn add_chord(project: &mut Project, args: &Args<'_>) -> Result<Outcome, CommandError> {
