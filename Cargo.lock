@@ -318,6 +318,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
 name = "byteorder-lite"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -328,6 +334,15 @@ name = "bytes"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
+
+[[package]]
+name = "bzip2"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3a53fac24f34a81bc9954b5d6cfce0c21e18ec6959f44f56e8e90e4bb7c346c"
+dependencies = [
+ "libbz2-rs-sys",
+]
 
 [[package]]
 name = "calloop"
@@ -422,6 +437,16 @@ dependencies = [
  "jobserver",
  "libc",
  "shlex",
+]
+
+[[package]]
+name = "cdivsufsort"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edefce019197609da416762da75bb000bbd2224b2d89a7e722c2296cbff79b8c"
+dependencies = [
+ "cc",
+ "sacabase",
 ]
 
 [[package]]
@@ -1696,6 +1721,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
+name = "libbz2-rs-sys"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32f454fd6831a29c0e827ed075bca2a15be201bd57f4168f0fd1041124eab17e"
+
+[[package]]
 name = "libc"
 version = "0.2.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1922,7 +1953,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-android"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "android-activity",
  "musiccraft-app",
@@ -1930,7 +1961,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-android-java"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "android-activity",
  "jni 0.21.1",
@@ -1938,7 +1969,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-antiserum"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-dsp",
  "musiccraft-params",
@@ -1946,7 +1977,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-antiserum-presets"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-antiserum",
  "musiccraft-dsp",
@@ -1959,7 +1990,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-app"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "android-activity",
  "eframe",
@@ -1969,6 +2000,7 @@ dependencies = [
  "musiccraft-cli",
  "musiccraft-commands",
  "musiccraft-default-soundfont",
+ "musiccraft-delta",
  "musiccraft-dsp",
  "musiccraft-engine",
  "musiccraft-file-dialog",
@@ -1985,7 +2017,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-audio"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "cpal",
  "musiccraft-engine",
@@ -1994,7 +2026,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-clap"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "clap-sys 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc",
@@ -2011,14 +2043,14 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-clap-testplugin"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "clap-sys 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "musiccraft-cli"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-audio",
  "musiccraft-clap",
@@ -2032,7 +2064,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-commands"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-antiserum",
  "musiccraft-antiserum-presets",
@@ -2051,14 +2083,21 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-default-soundfont"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-soundfont",
 ]
 
 [[package]]
+name = "musiccraft-delta"
+version = "0.12.0"
+dependencies = [
+ "qbsdiff",
+]
+
+[[package]]
 name = "musiccraft-demucs"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-dsp",
  "musiccraft-stems",
@@ -2069,14 +2108,14 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-dsp"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-params",
 ]
 
 [[package]]
 name = "musiccraft-editors"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "eframe",
  "egui",
@@ -2093,7 +2132,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-engine"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-dsp",
  "musiccraft-formula",
@@ -2105,7 +2144,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-file-dialog"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-android-java",
  "rfd",
@@ -2113,18 +2152,18 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-flp"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "musiccraft-formula"
-version = "0.11.0"
+version = "0.12.0"
 
 [[package]]
 name = "musiccraft-instruments"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-dsp",
  "musiccraft-params",
@@ -2132,7 +2171,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-mcp"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-cli",
  "musiccraft-commands",
@@ -2143,7 +2182,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-meter"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-params",
  "serde",
@@ -2152,14 +2191,14 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-params"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "musiccraft-patch"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2167,11 +2206,11 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-paths"
-version = "0.11.0"
+version = "0.12.0"
 
 [[package]]
 name = "musiccraft-plugin-editor"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "baseview",
  "egui",
@@ -2184,7 +2223,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-plugin-export"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "egui",
  "musiccraft-antiserum",
@@ -2211,14 +2250,14 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-plugin-window"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "x11rb",
 ]
 
 [[package]]
 name = "musiccraft-project"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-meter",
  "musiccraft-params",
@@ -2229,7 +2268,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-render"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-antiserum",
  "musiccraft-antiserum-presets",
@@ -2251,7 +2290,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-samples"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "hound",
  "mp3lame-encoder",
@@ -2264,7 +2303,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-serum"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "miniz_oxide 0.8.9",
  "musiccraft-antiserum",
@@ -2276,7 +2315,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-soundfont"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "symphonia",
  "vorbis_rs",
@@ -2284,14 +2323,14 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-stems"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-dsp",
 ]
 
 [[package]]
 name = "musiccraft-ui"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "egui",
  "musiccraft-antiserum",
@@ -2308,7 +2347,7 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-vst3"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "libc",
  "libloading 0.8.9",
@@ -2324,14 +2363,14 @@ dependencies = [
 
 [[package]]
 name = "musiccraft-vst3-testplugin"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "vst3",
 ]
 
 [[package]]
 name = "musiccraft-wavetables"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "hound",
  "musiccraft-antiserum",
@@ -3177,6 +3216,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
+name = "qbsdiff"
+version = "1.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdc7f24528be166f08f2c7becaca5618865499b6ded2565d5afcd795cc0d7596"
+dependencies = [
+ "byteorder",
+ "bzip2",
+ "rayon",
+ "suffix_array",
+]
+
+[[package]]
 name = "quick-error"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3229,6 +3280,26 @@ name = "rawpointer"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60a357793950651c4ed0f3f52338f53b2f809f32d83a07f72909fa13e4c6c1e3"
+
+[[package]]
+name = "rayon"
+version = "1.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb39b166781f92d482534ef4b4b1b2568f42613b53e5b6c160e24cfbfa30926d"
+dependencies = [
+ "either",
+ "rayon-core",
+]
+
+[[package]]
+name = "rayon-core"
+version = "1.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
+dependencies = [
+ "crossbeam-deque",
+ "crossbeam-utils",
+]
 
 [[package]]
 name = "read-fonts"
@@ -3431,6 +3502,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5ff0cc5e135c8870a775d3320910cd9b564ec036b4dc0b8741629020be63f01"
 dependencies = [
  "twox-hash",
+]
+
+[[package]]
+name = "sacabase"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9883fc3d6ce3d78bb54d908602f8bc1f7b5f983afe601dabe083009d86267a84"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -3690,6 +3770,15 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "suffix_array"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "907d9ca9637a22e3a7d7c7818f6105a7898857359e187ad3325d986684b9ec3f"
+dependencies = [
+ "cdivsufsort",
+]
 
 [[package]]
 name = "symphonia"
@@ -5142,7 +5231,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "musiccraft-commands",
  "musiccraft-params",

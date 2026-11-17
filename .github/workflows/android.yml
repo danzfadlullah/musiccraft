@@ -14,6 +14,7 @@ on:
       - "crates/musiccraft-android/**"
       - "crates/musiccraft-android-java/**"
       - "crates/musiccraft-app/**"
+      - "crates/musiccraft-delta/**"
       - "crates/musiccraft-file-dialog/**"
       - "crates/musiccraft-soundfont/**"
       - "crates/musiccraft-default-soundfont/**"
@@ -27,6 +28,7 @@ on:
       - "crates/musiccraft-android/**"
       - "crates/musiccraft-android-java/**"
       - "crates/musiccraft-app/**"
+      - "crates/musiccraft-delta/**"
       - "crates/musiccraft-file-dialog/**"
       - "crates/musiccraft-soundfont/**"
       - "crates/musiccraft-default-soundfont/**"
@@ -168,6 +170,85 @@ jobs:
           name: MusicCraft-Android-APK
           path: dist/*.apk
           if-no-files-found: error
+      - name: Build the delta patches
+        # The updater can rebuild the new APK from the installed one instead
+        # of downloading the whole APK again: a bsdiff patch per recent base
+        # version (docs/android.md, "Delta updates"). The base APKs live on
+        # the `android-bases` branch; the patches and their manifest
+        # (`android-patches.json`) join the release as extra assets. A
+        # version with no patch here — the first build, or more than eight
+        # releases behind — updates by the full download.
+        if: >-
+          ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+              (github.event_name == 'workflow_dispatch' && github.event.inputs.profile != 'debug') }}
+        run: |
+          VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2)
+          APK=dist/MusicCraft-android.apk
+          mkdir -p patch-work/bases patch-work/patches dist/patches
+          cp "$APK" "patch-work/bases/${VERSION}.apk"
+          if git ls-remote --exit-code --heads origin android-bases > /dev/null 2>&1; then
+            git fetch --force origin android-bases:android-bases
+            for name in $(git ls-tree --name-only android-bases:bases); do
+              git show "android-bases:bases/$name" > "patch-work/bases/$name"
+            done
+          fi
+          # Only the newest eight bases matter; older ones fall back to the
+          # full download, and the branch drops them.
+          cd patch-work
+          KEEP=$(ls bases | sort -V | tail -n 8)
+          cargo build --release -p musiccraft-delta --locked
+          ENTRIES=""
+          for name in $KEEP; do
+            BASE=${name%.apk}
+            [ "$BASE" = "$VERSION" ] && continue
+            OUT="patches/MusicCraft-android-${BASE}-to-${VERSION}.patch"
+            if ../target/release/musiccraft-delta make "bases/$name" "$APK" "$OUT"; then
+              # Prove the patch rebuilds the target exactly.
+              ../target/release/musiccraft-delta apply "bases/$name" "$OUT" rebuilt.apk
+              if ! cmp -s rebuilt.apk "$APK"; then
+                echo "patch $OUT does not rebuild the target; dropping it"
+                rm -f "$OUT"
+                continue
+              fi
+              BASE_SHA=$(sha256sum "bases/$name" | cut -d' ' -f1)
+              SIZE=$(stat -c%s "$OUT")
+              ENTRY="{\"base\":\"$BASE\",\"base_sha256\":\"sha256:$BASE_SHA\",\"name\":\"${OUT##*/}\",\"size\":$SIZE}"
+              if [ -n "$ENTRIES" ]; then ENTRIES="$ENTRIES,$ENTRY"; else ENTRIES="$ENTRY"; fi
+              echo "patch for $BASE: $SIZE bytes"
+            fi
+          done
+          TARGET_SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+          printf '{"target":"%s","target_sha256":"sha256:%s","patches":[%s]}\n' \
+            "$VERSION" "$TARGET_SHA" "$ENTRIES" > ../dist/android-patches.json
+          cp patches/*.patch ../dist/patches/ 2>/dev/null || true
+          cd ..
+          cat dist/android-patches.json
+      - name: Refresh the base APKs branch
+        if: >-
+          ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+              (github.event_name == 'workflow_dispatch' && github.event.inputs.profile != 'debug') }}
+        run: |
+          VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2)
+          if git ls-remote --exit-code --heads origin android-bases > /dev/null 2>&1; then
+            git fetch --force origin android-bases:android-bases
+            git worktree add bases-tree android-bases
+          else
+            git worktree add --orphan -b android-bases bases-tree
+          fi
+          mkdir -p bases-tree/bases
+          cp dist/MusicCraft-android.apk "bases-tree/bases/${VERSION}.apk"
+          cd bases-tree/bases
+          ls | sort -V | head -n -8 | xargs -r rm -f
+          cd ../..
+          git -C bases-tree add -A
+          if git -C bases-tree diff --cached --quiet; then
+            echo "the base APKs did not change"
+          else
+            git -C bases-tree -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "Base APKs for the delta updater (target ${VERSION})"
+            git push origin android-bases
+          fi
       - name: Publish the rolling pre-release
         # Every build of main refreshes the `android` pre-release on the
         # Releases tab, so there is one stable download address. Debug
@@ -200,13 +281,18 @@ jobs:
               echo "- Signed with the persistent CI key: installs over any earlier build, no uninstall needed."
             fi
             echo "- Pre-release: for testing, not for the store. See docs/android.md."
+            echo "- Delta updates: when this release carries a patch for the installed version, the app rebuilds the update from the installed APK and downloads only what changed."
             echo
             echo "Changes:"
             git log --no-decorate --format='- %s' --max-count=20 "$RANGE" \
               || echo "- (the commit list could not be made)"
           } > dist/notes.md
           gh release delete android --yes --cleanup-tag || true
-          gh release create android "dist/MusicCraft-android.apk" \
+          ASSETS=("dist/MusicCraft-android.apk" "dist/android-patches.json")
+          for f in dist/patches/*.patch; do
+            [ -e "$f" ] && ASSETS+=("$f")
+          done
+          gh release create android "${ASSETS[@]}" \
             --prerelease \
             --target "$GITHUB_SHA" \
             --title "MusicCraft for Android ${VERSION} (auto-build)" \

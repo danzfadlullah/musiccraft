@@ -24,6 +24,10 @@ const APK_NAME: &str = "MusicCraft-android.apk";
 const APK_PREFIX: &str = "MusicCraft-update-";
 #[cfg(target_os = "android")]
 const USER_AGENT: &str = "MusicCraft-Android";
+/// The release asset naming the delta patches (`android-patches.json`): a
+/// JSON list of patches from recent release APKs to this release's APK.
+#[cfg(target_os = "android")]
+const PATCHES_NAME: &str = "android-patches.json";
 
 /// The commit this APK was made from; CI stamps it into every build. Empty
 /// on a plain `cargo apk build`.
@@ -54,6 +58,30 @@ struct Latest {
     /// download must match before it may install; empty when GitHub does
     /// not report one.
     digest: String,
+    /// The delta patch from the running version to this release, when the
+    /// release's manifest carries one.
+    patch: Option<PatchChoice>,
+}
+
+/// One release asset: what it is called, where to get it, how big it is and
+/// its own fingerprint.
+#[cfg(target_os = "android")]
+struct Asset {
+    name: String,
+    url: String,
+    size: u64,
+    digest: String,
+}
+
+/// The patch this installed version can take: the release manifest's entry
+/// for its base APK. `base_sha256` is the official base APK's fingerprint,
+/// which the installed one must match before the patch may be used — a
+/// modified or differently-built install falls back to the full download.
+#[cfg(target_os = "android")]
+struct PatchChoice {
+    url: String,
+    size: u64,
+    base_sha256: String,
 }
 
 /// A finished download and the version it is, waiting for the UI thread (the
@@ -115,7 +143,10 @@ impl Updater {
                                 changes: latest.changes,
                                 build: short(&latest.sha),
                                 published: latest.published,
-                                size: latest.size,
+                                // The size the update actually downloads: the
+                                // patch when this version has one, the whole
+                                // APK otherwise.
+                                size: latest.patch.as_ref().map(|p| p.size).unwrap_or(latest.size),
                             }
                         }
                     }
@@ -272,29 +303,74 @@ fn latest_build() -> Result<Latest, String> {
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_owned();
-    let asset = json
+    let assets: Vec<Asset> = json
         .get("assets")
         .and_then(|v| v.as_array())
-        .and_then(|assets| {
+        .map(|assets| {
             assets
                 .iter()
-                .find(|a| a.get("name").and_then(|v| v.as_str()) == Some(APK_NAME))
-                .cloned()
+                .map(|a| Asset {
+                    name: a
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_owned(),
+                    url: a
+                        .get("browser_download_url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_owned(),
+                    size: a.get("size").and_then(|v| v.as_u64()).unwrap_or(0),
+                    digest: a
+                        .get("digest")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_owned(),
+                })
+                .collect()
         })
+        .unwrap_or_default();
+    let apk = assets
+        .iter()
+        .find(|a| a.name == APK_NAME)
         .ok_or_else(|| format!("{APK_NAME} is not on the release yet"))?;
+    let patch = patch_for_this_build(&assets, &version);
     Ok(Latest {
         version,
         changes,
         sha,
         published,
-        url: asset
-            .get("browser_download_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_owned(),
-        size: asset.get("size").and_then(|v| v.as_u64()).unwrap_or(0),
-        digest: asset
-            .get("digest")
+        url: apk.url.clone(),
+        size: apk.size,
+        digest: apk.digest.clone(),
+        patch,
+    })
+}
+
+/// The release manifest's patch from the running version, if there is one:
+/// the manifest asset is fetched and its entry for this version — which
+/// names the base APK's fingerprint — becomes the update's patch.
+#[cfg(target_os = "android")]
+fn patch_for_this_build(assets: &[Asset], version: &str) -> Option<PatchChoice> {
+    let manifest = assets.iter().find(|a| a.name == PATCHES_NAME)?;
+    let reply = ureq::get(&manifest.url)
+        .set("User-Agent", USER_AGENT)
+        .call()
+        .ok()?;
+    let text = reply.into_string().ok()?;
+    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let entry = json
+        .get("patches")
+        .and_then(|v| v.as_array())?
+        .iter()
+        .find(|p| p.get("base").and_then(|v| v.as_str()) == Some(version))?;
+    let name = entry.get("name").and_then(|v| v.as_str())?;
+    let asset = assets.iter().find(|a| a.name == name)?;
+    Some(PatchChoice {
+        url: asset.url.clone(),
+        size: asset.size,
+        base_sha256: entry
+            .get("base_sha256")
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_owned(),
@@ -306,11 +382,106 @@ fn download_latest(
     status: &Mutex<UpdateStatus>,
     ctx: &egui::Context,
 ) -> Result<(Vec<u8>, String), String> {
+    let latest = latest_build()?;
+    match download_patched(&latest, status, ctx) {
+        Ok(result) => Ok(result),
+        Err(err) => {
+            crate::log(&format!(
+                "update: the patch path did not work ({err}); downloading the full APK"
+            ));
+            download_full(&latest, status, ctx)
+        }
+    }
+}
+
+/// The delta path: patches the installed APK into the new one. Only taken
+/// when the release carries a patch for the running version and the
+/// installed APK is byte-for-byte the official base; the rebuilt APK must
+/// match the release's own fingerprint before it may install. Any failure
+/// falls back to [`download_full`].
+#[cfg(target_os = "android")]
+fn download_patched(
+    latest: &Latest,
+    status: &Mutex<UpdateStatus>,
+    ctx: &egui::Context,
+) -> Result<(Vec<u8>, String), String> {
+    let choice = latest
+        .patch
+        .as_ref()
+        .ok_or("the release carries no patch for this version")?;
+    let app = crate::android::app_handle().ok_or("the app handle is not ready")?;
+    let apk_path = musiccraft_android_java::own_apk_path(&app)?;
+    let base = std::fs::read(&apk_path).map_err(|e| format!("cannot read {apk_path}: {e}"))?;
+    let base_digest = apk_fingerprint(&base);
+    if choice.base_sha256.is_empty() || !same_digest(&choice.base_sha256, &base_digest) {
+        return Err(format!(
+            "the installed APK's fingerprint ({base_digest}) is not the patch's base"
+        ));
+    }
+    crate::log(&format!(
+        "update: the installed APK matches the patch's base; downloading the patch ({} bytes)",
+        choice.size
+    ));
+    let patch = download_asset(&choice.url, choice.size, status, ctx)?;
+    crate::log(&format!(
+        "update: rebuilding the APK from the patch ({} bytes in)",
+        base.len()
+    ));
+    let rebuilt = musiccraft_delta::apply(&base, &patch)?;
+    let digest = apk_fingerprint(&rebuilt);
+    if latest.digest.is_empty() {
+        crate::log("update: the release carries no fingerprint; skipped the check");
+    } else if same_digest(&latest.digest, &digest) {
+        crate::log(&format!(
+            "update: the rebuilt APK's fingerprint matched ({digest})"
+        ));
+    } else {
+        return Err(format!(
+            "the rebuilt APK's fingerprint ({digest}) does not match the release's ({})",
+            latest.digest
+        ));
+    }
+    Ok((rebuilt, latest.version.clone()))
+}
+
+/// The full path: downloads the whole APK, with the same fingerprint check.
+#[cfg(target_os = "android")]
+fn download_full(
+    latest: &Latest,
+    status: &Mutex<UpdateStatus>,
+    ctx: &egui::Context,
+) -> Result<(Vec<u8>, String), String> {
+    let version = latest.version.clone();
+    let bytes = download_asset(&latest.url, latest.size, status, ctx)?;
+    // The download only installs when its fingerprint matches the one the
+    // release asset carries: a truncated or tampered APK never gets there.
+    let digest = apk_fingerprint(&bytes);
+    if latest.digest.is_empty() {
+        crate::log("update: the release carries no fingerprint; skipped the check");
+    } else if same_digest(&latest.digest, &digest) {
+        crate::log(&format!("update: fingerprint matched ({digest})"));
+    } else {
+        return Err(format!(
+            "the downloaded APK's fingerprint ({digest}) does not match the release's ({}); \
+             try the update again",
+            latest.digest
+        ));
+    }
+    Ok((bytes, version))
+}
+
+/// Streams an asset's bytes with the download progress bar; `total` is the
+/// expected size (the server's content-length wins when it has one).
+#[cfg(target_os = "android")]
+fn download_asset(
+    url: &str,
+    total: u64,
+    status: &Mutex<UpdateStatus>,
+    ctx: &egui::Context,
+) -> Result<Vec<u8>, String> {
     use std::io::Read;
 
-    let latest = latest_build()?;
-    let version = latest.version.clone();
-    let reply = ureq::get(&latest.url)
+    let reply = ureq::get(url)
         .set("User-Agent", USER_AGENT)
         .call()
         .map_err(|e| format!("cannot reach GitHub: {e}"))?;
@@ -318,7 +489,7 @@ fn download_latest(
         .header("content-length")
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|&n| n > 0)
-        .unwrap_or(latest.size)
+        .unwrap_or(total)
         .max(1);
     crate::log(&format!("update: downloading {} bytes", total));
     let mut reader = reply.into_reader();
@@ -344,21 +515,7 @@ fn download_latest(
         }
         ctx.request_repaint();
     }
-    // The download only installs when its fingerprint matches the one the
-    // release asset carries: a truncated or tampered APK never gets there.
-    let digest = apk_fingerprint(&bytes);
-    if latest.digest.is_empty() {
-        crate::log("update: the release carries no fingerprint; skipped the check");
-    } else if same_digest(&latest.digest, &digest) {
-        crate::log(&format!("update: fingerprint matched ({digest})"));
-    } else {
-        return Err(format!(
-            "the downloaded APK's fingerprint ({digest}) does not match the release's ({}); \
-             try the update again",
-            latest.digest
-        ));
-    }
-    Ok((bytes, version))
+    Ok(bytes)
 }
 
 /// The SHA-256 fingerprint of `bytes`, lowercase hex.

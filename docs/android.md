@@ -100,6 +100,37 @@ itself, so a plain `cargo apk build` — which has no commit stamp — gets
 offered the release too. The `android.permission.INTERNET` permission exists
 for this check alone; nothing else in the app reaches the network.
 
+### Delta updates
+
+Most of an APK never changes between releases, so a full re-download for
+every update wastes most of its bytes. When a release was built from a base
+this install matches, the updater downloads only a patch and rebuilds the
+APK locally:
+
+1. The release carries `android-patches.json`, a manifest of patches from
+   recent base versions, and the updater offers the patch's size in the
+   pop-up and the status (a few megabytes instead of the whole APK).
+2. It reads the installed APK (`ApplicationInfo.sourceDir`, through
+   `musiccraft-android-java`'s `own_apk_path`) and checks its SHA-256
+   against the manifest's `base_sha256`: only the byte-for-byte official
+   release APK is a patch base, so a modified install falls back to the
+   full download.
+3. The patch (bsdiff 4.x, made by the `musiccraft-delta` crate) rebuilds
+   the new APK from the installed one, and the result must match the
+   release APK's own SHA-256 before it may install — the rebuilt bytes are
+   provably identical to the official release.
+4. From there the path is the usual one: the `PackageInstaller` session,
+   the confirmation dialog, data and settings kept.
+
+Any misstep — no patch for this version (more than eight releases behind,
+a big update, a modified install), a failed download or a fingerprint that
+does not match — falls back to the full APK download with the same
+progress bar, so an update never fails because the patch path did.
+
+CI keeps the base APKs on the `android-bases` branch (the newest eight) and
+builds one patch per base against the new APK, verifying each patch
+rebuilds the target exactly before it ships.
+
 ## Logs
 
 The app writes one log file per session, named after the session's start

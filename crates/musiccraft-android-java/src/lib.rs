@@ -4,7 +4,9 @@
 //!   session and commits it, so the system installer opens (the in-app
 //!   update), and
 //! - `pick` opens the system's SAF file picker and turns what it returns
-//!   into cache files the app reads and writes like any other.
+//!   into cache files the app reads and writes like any other, and
+//! - `own_apk_path` names the installed APK this process runs from, the
+//!   base the delta updater patches from.
 //!
 //! The workspace forbids `unsafe` code; like `musiccraft-android`'s
 //! `android_main`, this crate is a deliberate exception, because JNI cannot
@@ -13,6 +15,7 @@
 
 mod install;
 mod saf;
+mod self_apk;
 
 use std::sync::OnceLock;
 
@@ -23,6 +26,7 @@ use jni::{JNIEnv, JavaVM};
 
 pub use install::{delete_downloaded_apk, downloaded_apk_names, install_apk};
 pub use saf::{SafMode, SafRequest, pick, sync};
+pub use self_apk::own_apk_path;
 
 static APP: OnceLock<AndroidApp> = OnceLock::new();
 

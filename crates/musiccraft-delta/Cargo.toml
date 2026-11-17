@@ -1,0 +1,18 @@
+[package]
+name = "musiccraft-delta"
+description = "Binary delta patches for the Android updater: bsdiff-compatible make and apply"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+qbsdiff = "1.4"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "musiccraft-delta"
+path = "src/main.rs"
