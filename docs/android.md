@@ -70,15 +70,19 @@ Two permissions make that work. The manifest declares
 `REQUEST_INSTALL_PACKAGES`: without it Android 8 and newer refuse to show
 the installer's confirmation dialog — the session commits but nothing
 appears, which is exactly the silent failure this replaced. And the user
-must allow the app once under **Install unknown apps** (Android opens that
-settings screen the first time an update installs; from then on the
-dialog asks *Do you want to update this application?* directly). If the
-installer cannot be opened all the same, the tab says where the APK copy is
+must allow the app once under **Install unknown apps**: the session's
+answer comes back to the app's activity (`MusicCraftActivity`, the install
+session's status receiver), and when the system asks for the user's action
+it opens that settings screen — or, once granted, the dialog asking *Do
+you want to update this application?* — itself. A session whose receiver
+cannot be launched (the earlier bare-action, immutable PendingIntent)
+waits forever with nothing on screen. If the installer cannot be opened
+all the same, the tab says where the APK copy is
 instead: `Android/data/io.github.bhimio1.musiccraft/files/MusicCraft/update/`,
 open it with a file manager.
 
 The spare copy in the app's storage carries the version in its name
-(`MusicCraft-update-0.10.5.apk`). Once an update has installed,
+(`MusicCraft-update-0.10.6.apk`). Once an update has installed,
 the next start sweeps the spent ones out (its version is not newer than the
 one running; a download whose install was cancelled survives) — both the
 spare copies and the `Download/MusicCraft/` entries older versions left

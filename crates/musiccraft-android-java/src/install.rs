@@ -1,10 +1,12 @@
 //! Hands an APK held in memory to the Android system installer through the
 //! `PackageInstaller` session API: the bytes stream into an install session
-//! and `commit` makes Android show its own confirmation dialog ("Do you want
-//! to update this application?"). This is what makes the in-app update
-//! possible without a file manager. The manifest must declare
-//! `REQUEST_INSTALL_PACKAGES`: without it Android 8 and newer refuse to show
-//! the dialog, silently.
+//! and `commit` asks Android to run the install, which shows its own
+//! confirmation dialog ("Do you want to update this application?") — or
+//! first the "install unknown apps" grant, which the app's activity opens
+//! when the session reports `STATUS_PENDING_USER_ACTION`. This is what
+//! makes the in-app update possible without a file manager. The manifest
+//! must declare `REQUEST_INSTALL_PACKAGES`: without it Android 8 and newer
+//! refuse to run the install, silently.
 
 use android_activity::AndroidApp;
 use jni::objects::{JByteArray, JObject, JValue};
@@ -20,12 +22,16 @@ use crate::{checked, take, take_bool, take_int, with_env};
 const APK_PREFIX: &str = "MusicCraft-update-";
 /// `PackageInstaller.SessionParams.MODE_FULL_INSTALL`.
 const MODE_FULL_INSTALL: i32 = 1;
-/// `PendingIntent.FLAG_IMMUTABLE`: required to name mutability explicitly
-/// from Android 12 on, and the installer's answer never needs to change.
-const FLAG_IMMUTABLE: i32 = 0x0400_0000;
-/// `PackageInstaller.ACTION_CONFIRM_INSTALL`: the intent the session's
-/// result is delivered through.
-const ACTION_CONFIRM_INSTALL: &str = "android.content.pm.action.CONFIRM_INSTALL";
+/// `PendingIntent.FLAG_MUTABLE | FLAG_UPDATE_CURRENT`: the session's answer
+/// must be mutable, because the system fills the status extras into the
+/// intent before sending it — an immutable receiver would make the answer
+/// undeliverable — and `UPDATE_CURRENT` reuses the receiver across updates.
+const PENDING_FLAGS: i32 = 0x0200_0000 | 0x0800_0000;
+/// The activity that receives the install session's status: the app's one
+/// Java class, which shows the screen the system asks for (the install
+/// confirmation, or the "install unknown apps" grant) — see
+/// `MusicCraftActivity.handleInstallStatus`.
+const ACTIVITY_CLASS: &str = "io.github.bhimio1.musiccraft.MusicCraftActivity";
 /// How long to wait for the Java main thread to run the install (the 30 MB
 /// stream write included) before giving up on it.
 const INSTALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -170,18 +176,27 @@ fn write_apk(
     Ok(())
 }
 
-/// Commits the session with a `PendingIntent` for the result, which makes
-/// Android show the install confirmation. The session is closed afterwards —
-/// `commit` takes over from there.
+/// Commits the session with a `PendingIntent` for the result. The intent
+/// names the app's own activity explicitly: the session's answer — above
+/// all `STATUS_PENDING_USER_ACTION`, the screen the user must see before
+/// the install can go on — is delivered by launching it, and an intent
+/// nothing resolves (as a bare action would be) swallows the answer, which
+/// is exactly the installer that never appears. The session is closed
+/// afterwards — `commit` takes over from there.
 fn commit(env: &mut JNIEnv<'_>, activity: &JObject, session: &JObject) -> Result<(), String> {
-    let action_call = env.new_string(ACTION_CONFIRM_INSTALL);
-    let action: JObject = checked(env, action_call)?.into();
-    let new_intent = env.new_object(
-        "android/content/Intent",
-        "(Ljava/lang/String;)V",
-        &[JValue::Object(&action)],
-    );
+    let new_intent = env.new_object("android/content/Intent", "()V", &[]);
     let intent = checked(env, new_intent)?;
+    let package_call = env.call_method(activity, "getPackageName", "()Ljava/lang/String;", &[]);
+    let package = take(env, package_call)?;
+    let class_call = env.new_string(ACTIVITY_CLASS);
+    let class: JObject = checked(env, class_call)?.into();
+    let set_class = env.call_method(
+        &intent,
+        "setClassName",
+        "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;",
+        &[JValue::Object(&package), JValue::Object(&class)],
+    );
+    checked(env, set_class)?;
     let pending = env.call_static_method(
         "android/app/PendingIntent",
         "getActivity",
@@ -190,7 +205,7 @@ fn commit(env: &mut JNIEnv<'_>, activity: &JObject, session: &JObject) -> Result
             JValue::Object(activity),
             JValue::Int(0),
             JValue::Object(&intent),
-            JValue::Int(FLAG_IMMUTABLE),
+            JValue::Int(PENDING_FLAGS),
         ],
     );
     let pending = take(env, pending)?;
