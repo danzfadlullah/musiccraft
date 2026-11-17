@@ -74,7 +74,7 @@ packages that are not declared, and without it opening the installer throws
 carry the Java exception's type and message).
 
 Both APK copies — the Downloads entry and the spare copy — carry the version
-in their name (`MusicCraft-update-0.8.0.apk`). Once an update has installed,
+in their name (`MusicCraft-update-0.9.0.apk`). Once an update has installed,
 the next start sweeps the spent ones out (its version is not newer than the
 one running; a download whose install was cancelled survives). **Settings →
 General** has the switch: *Delete the update APK after it installs*, on by
