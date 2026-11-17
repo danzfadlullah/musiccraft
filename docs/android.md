@@ -17,7 +17,7 @@ link from API 29.
 | Touch style | On Android the theme gets wider hit targets and spacing (`apply_touch_style`); egui turns touch events into pointer input, so taps, drags and long presses work everywhere the mouse does. The system's display density sets the UI scale. |
 | Screen | Landscape only (`sensorLandscape`: both landscape sides, following the sensor) and fullscreen: the activity sets `FLAG_FULLSCREEN | FLAG_LAYOUT_IN_SCREEN`, so the status bar stays out of the way. The system's gesture pill remains; that is up to the launcher. |
 | File dialogs | rfd has no Android backend, so `musiccraft-file-dialog` builds against the system's SAF panels: **open** shows the file picker (`ACTION_OPEN_DOCUMENT`, multi-select included), and whatever is picked is copied into the app's cache and handed to the app as a normal file. **Save** opens `ACTION_CREATE_DOCUMENT` seeded with the suggested name, and every later write to that project is pushed back to the picked location automatically. Folder picks have no SAF equivalent here and answer "cancelled"; file-type filters are passed to the panel as mime types (`EXTRA_MIME_TYPES`), with an `application/octet-stream` fallback so files the provider does not type (a `.mcproj`) stay visible. |
-| Soundfonts | **Add → More instruments → Soundfont (SF2/SF3)** opens a `.sf2`/`.sf3` file and adds a zone sampler playing its first preset (`channel.add_soundfont`; `soundfont.presets` lists the presets, `channel.load_soundfont` switches). The samples stay inside the soundfont file — zones reference them as `soundfont:<file>#<index>` and the sample cache decodes them on demand. Looping, envelopes and pan are not applied yet. |
+| Soundfonts | **Options → Soundfont (SF2/SF3)** opens a `.sf2`/`.sf3` file and adds a zone sampler playing its first preset (`channel.add_soundfont`; `soundfont.presets` lists the presets, `channel.load_soundfont` switches). The bundled General MIDI soundfont is in **Add → More instruments → Built-in soundfont (GM)**. The samples stay inside the soundfont file — zones reference them as `soundfont:<file>#<index>` and the sample cache decodes them on demand. Looping, envelopes and pan are not applied yet. |
 | MIDI | `midir` speaks Android MIDI, so USB and Bluetooth keyboards show up in Settings once connected. |
 | Audio | `cpal` opens the device through Android's audio stack; the engine runs in the callback exactly as on the desktop. |
 
@@ -74,7 +74,7 @@ packages that are not declared, and without it opening the installer throws
 carry the Java exception's type and message).
 
 Both APK copies — the Downloads entry and the spare copy — carry the version
-in their name (`MusicCraft-update-0.10.1.apk`). Once an update has installed,
+in their name (`MusicCraft-update-0.10.2.apk`). Once an update has installed,
 the next start sweeps the spent ones out (its version is not newer than the
 one running; a download whose install was cancelled survives). **Settings →
 General** has the switch: *Delete the update APK after it installs*, on by

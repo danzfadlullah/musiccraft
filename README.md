@@ -76,10 +76,11 @@ installer cannot open, the tab says where the APK copy is. See
 - **Soundfonts**: the app ships with a General MIDI soundfont (TimGM6mb),
   so imported MIDI files play the file's own instruments out of the box:
   every part opens on its own channel playing its General MIDI preset (the
-  drum channel the percussion kit). **Add → More instruments → Soundfont
-  (SF2/SF3)** turns any `.sf2`/`.sf3` preset into a zone sampler channel,
-  and **Built-in soundfont (GM)** adds a channel from the bundled font; a
-  soundfont loaded this way takes over the MIDI import's instruments.
+  drum channel the percussion kit). **Options → Soundfont (SF2/SF3)** turns
+  any `.sf2`/`.sf3` preset into a zone sampler channel, and **Add → More
+  instruments → Built-in soundfont (GM)** adds a channel from the bundled
+  font; a soundfont loaded this way takes over the MIDI import's
+  instruments.
 - **Audio and MIDI**: output through AAudio, MIDI keyboards in and gear out
   through AMidi (USB and Bluetooth).
 - **Projects and export**: open and save `.mcproj`, import MIDI files into

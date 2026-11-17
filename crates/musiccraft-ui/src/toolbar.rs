@@ -148,7 +148,6 @@ fn add_menu(ui: &mut egui::Ui, frame: &Frame<'_>, actions: &mut Vec<Action>) {
                 ("Channel stack", "channel.add_layer"),
                 ("MIDI output", "channel.add_midi_out"),
                 ("Built-in soundfont (GM)", "channel.add_soundfont builtin"),
-                ("Soundfont (SF2/SF3)", "ui.add_soundfont"),
             ] {
                 if ui.button(label).clicked() {
                     if let Ok(invocation) = Invocation::parse(line) {
@@ -293,6 +292,15 @@ fn options_menu(
     );
     ui.checkbox(&mut state.record_audio, "Record audio input")
         .hint("With REC armed in song mode, capture the audio input as a clip");
+    ui.separator();
+    if ui
+        .button("Soundfont (SF2/SF3)")
+        .hint("Pick a soundfont file and add a channel playing its first preset")
+        .clicked()
+    {
+        run(actions, "ui.add_soundfont");
+        ui.close();
+    }
 }
 
 fn tools_menu(ui: &mut egui::Ui, frame: &Frame<'_>, state: &UiState, actions: &mut Vec<Action>) {
