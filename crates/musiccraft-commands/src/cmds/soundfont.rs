@@ -60,12 +60,13 @@ pub(super) fn parse_file(path: &str) -> Result<Soundfont, String> {
 
 /// The preset at `index` (0-based) of the soundfont at `path`, as the
 /// project's zones: `soundfont:` sample references with the soundfont's
-/// key ranges, velocity ranges and tuning.
+/// key ranges, velocity ranges and tuning, plus the preset's own volume
+/// envelope so the channel fades like the font's player would.
 pub(super) fn preset_zones_at(
     font: &Soundfont,
     path: &str,
     index: usize,
-) -> Result<(String, Vec<SampleZone>, bool), String> {
+) -> Result<(String, Vec<SampleZone>, bool, Envelope), String> {
     let chosen = font
         .presets()
         .get(index)
@@ -73,6 +74,15 @@ pub(super) fn preset_zones_at(
     let specs = font
         .preset_zones(index)
         .map_err(|e| format!("{path}: {e}"))?;
+    let envelope = specs
+        .first()
+        .map(|zone| Envelope {
+            attack: zone.attack,
+            decay: zone.decay,
+            sustain: zone.sustain,
+            release: zone.release,
+        })
+        .unwrap_or_default();
     let zones: Vec<SampleZone> = specs
         .iter()
         .map(|zone| SampleZone {
@@ -86,7 +96,39 @@ pub(super) fn preset_zones_at(
             loop_end: zone.loop_end,
         })
         .collect();
-    Ok((chosen.name.clone(), zones, chosen.bank >= 128))
+    Ok((chosen.name.clone(), zones, chosen.bank >= 128, envelope))
+}
+
+/// A preset's volume envelope, in seconds and a 0..=1 sustain level.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Envelope {
+    pub attack: f32,
+    pub decay: f32,
+    pub sustain: f32,
+    pub release: f32,
+}
+
+impl Default for Envelope {
+    fn default() -> Self {
+        Self {
+            attack: 0.0,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.0,
+        }
+    }
+}
+
+impl Envelope {
+    /// Writes the envelope into a channel's instrument params, clamped to
+    /// half a minute so a broken file cannot hold a note for years.
+    pub fn apply(&self, params: &mut musiccraft_project::InstrumentParams) {
+        let clamp_time = |seconds: f32| seconds.clamp(0.0, 30.0);
+        params.0[musiccraft_project::params::inst::ATTACK] = clamp_time(self.attack);
+        params.0[musiccraft_project::params::inst::DECAY] = clamp_time(self.decay);
+        params.0[musiccraft_project::params::inst::SUSTAIN] = self.sustain.clamp(0.0, 1.0);
+        params.0[musiccraft_project::params::inst::RELEASE] = clamp_time(self.release);
+    }
 }
 
 /// The preset `args` names (1-based, default 1) of the soundfont at `path`,
@@ -96,7 +138,7 @@ fn preset_zones(
     path: &str,
     args: &Args<'_>,
     at: usize,
-) -> Result<(String, Vec<SampleZone>, bool), CommandError> {
+) -> Result<(String, Vec<SampleZone>, bool, Envelope), CommandError> {
     let font = parse_file(path).map_err(|e| args.invalid(e))?;
     let presets = font.presets();
     if presets.is_empty() {
@@ -115,6 +157,13 @@ fn preset_zones(
         )));
     }
     preset_zones_at(&font, path, number - 1).map_err(|e| args.invalid(e))
+}
+
+/// Writes a preset's volume envelope into a channel: the soundfont's own
+/// attack, decay, sustain and release, so a plucked preset fades like its
+/// player's instead of holding the sustain level until the note-off.
+pub(super) fn set_envelope(channel: &mut musiccraft_project::Channel, envelope: &Envelope) {
+    envelope.apply(&mut channel.params);
 }
 
 /// The soundfont path a zone sampler's sample plays:
@@ -327,7 +376,7 @@ pub(super) fn gm_preset(
     path: &str,
     midi_channel: u8,
     program: Option<u8>,
-) -> Option<(String, Vec<SampleZone>, bool)> {
+) -> Option<(String, Vec<SampleZone>, bool, Envelope)> {
     let presets = font.presets();
     let index = match midi_channel {
         9 => presets
@@ -349,7 +398,7 @@ pub(super) fn gm_preset(
 fn add_soundfont(project: &mut Project, args: &Args<'_>) -> Result<Outcome, CommandError> {
     args.expect(1, 3)?;
     let path = resolve_path(args.str(0)?, args)?;
-    let (preset, zones, drums) = preset_zones(&path, args, 1)?;
+    let (preset, zones, drums, envelope) = preset_zones(&path, args, 1)?;
     let name = if args.len() > 2 {
         args.rest(2)?
     } else {
@@ -358,6 +407,7 @@ fn add_soundfont(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comm
     let id = ChannelId(project.alloc_id());
     let mut channel = Channel::new(id, name, Instrument::Zones { zones });
     set_one_shot(&mut channel, drums);
+    set_envelope(&mut channel, &envelope);
     Ok(push_channel(project, channel))
 }
 
@@ -376,7 +426,7 @@ fn set_soundfont_preset(project: &mut Project, args: &Args<'_>) -> Result<Outcom
     args.expect(3, 3)?;
     let index = channel_arg(project, args, 0)?;
     let path = resolve_path(args.str(1)?, args)?;
-    let (preset, zones, drums) = preset_zones(&path, args, 2)?;
+    let (preset, zones, drums, envelope) = preset_zones(&path, args, 2)?;
     let number = index + 1;
     let old = super::channel::snapshot_json(&project.channels[index])
         .map_err(|e| args.invalid(e.to_string()))?;
@@ -384,6 +434,7 @@ fn set_soundfont_preset(project: &mut Project, args: &Args<'_>) -> Result<Outcom
     channel.instrument = Instrument::Zones { zones };
     channel.params = musiccraft_project::InstrumentParams::default();
     set_one_shot(channel, drums);
+    set_envelope(channel, &envelope);
     Ok(Outcome::undoable(
         format!("channel {number}: {preset}"),
         Invocation::new("channel.set_instrument", [number.to_string(), old]),
@@ -394,7 +445,7 @@ fn load_soundfont(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Com
     args.expect(2, 3)?;
     let index = channel_arg(project, args, 0)?;
     let path = resolve_path(args.str(1)?, args)?;
-    let (preset, zones, _) = preset_zones(&path, args, 2)?;
+    let (preset, zones, _, _) = preset_zones(&path, args, 2)?;
     let old = zones_mut(project, args, index)?.clone();
     let number = index + 1;
     // Undo: the new zones out (newest first), the old ones back in place.

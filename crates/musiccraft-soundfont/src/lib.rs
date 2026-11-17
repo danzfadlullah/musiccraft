@@ -94,6 +94,15 @@ pub struct ZoneSpec {
     /// as it sounds, instead of running out of sample.
     pub loop_start: u32,
     pub loop_end: u32,
+    /// The volume envelope the zone sounds through, in seconds and a
+    /// 0..=1 sustain level: how long the note rises, falls to the sustain
+    /// level and fades after the note-off. The file stores the times as
+    /// timecents and the sustain as centibels of attenuation; a zone that
+    /// sets nothing attacks and releases at once at full level.
+    pub attack: f32,
+    pub decay: f32,
+    pub sustain: f32,
+    pub release: f32,
 }
 
 /// A byte reader over a chunk's slice.
@@ -158,6 +167,16 @@ const GEN_FINE_TUNE: u16 = 52;
 const GEN_SAMPLE_ID: u16 = 53;
 const GEN_SAMPLE_MODES: u16 = 54;
 const GEN_ROOT_KEY: u16 = 58;
+/// The volume envelope's stages, in timecents (`1200·log2(seconds)`); the
+/// sustain is an attenuation in centibels from full level. Players like
+/// fluidsynth shape every note with these, so a preset's decay and release
+/// are what make a guitar fade like a plucked string instead of ringing
+/// until the note-off.
+const GEN_ATTACK_VOL: u16 = 34;
+const GEN_HOLD_VOL: u16 = 35;
+const GEN_DECAY_VOL: u16 = 36;
+const GEN_SUSTAIN_VOL: u16 = 37;
+const GEN_RELEASE_VOL: u16 = 38;
 
 /// A generator list entry's byte size.
 const GEN_SIZE: usize = 4;
@@ -411,6 +430,29 @@ impl Soundfont {
             + f32::from(pick(GEN_FINE_TUNE).unwrap_or(0) as i16) / 100.0
             + f32::from(header.pitch_correction) / 100.0;
         let loops = pick(GEN_SAMPLE_MODES).is_some_and(|modes| modes & 1 == 1);
+        // The volume envelope: timecents are seconds (`2^(tc/1200)`, at or
+        // below -12000 counts as instant), the sustain is centibels of
+        // attenuation from full level. The hold stage (time at full before
+        // the decay) folds into the decay, which every player's envelope
+        // then spends falling to the sustain level.
+        let seconds = |op: u16| {
+            pick(op).map(|amount| {
+                let timecents = amount as i16;
+                if timecents <= -12_000 {
+                    0.0
+                } else {
+                    2.0_f32.powf(f32::from(timecents) / 1200.0)
+                }
+            })
+        };
+        let attack = seconds(GEN_ATTACK_VOL).unwrap_or(0.0);
+        let hold = seconds(GEN_HOLD_VOL).unwrap_or(0.0);
+        let decay = seconds(GEN_DECAY_VOL).unwrap_or(0.0) + hold;
+        let sustain = pick(GEN_SUSTAIN_VOL)
+            .map(|centibels| 10.0_f32.powf(-f32::from(centibels as i16) / 200.0))
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        let release = seconds(GEN_RELEASE_VOL).unwrap_or(0.0);
         Some(ZoneSpec {
             sample,
             low,
@@ -421,6 +463,10 @@ impl Soundfont {
             loops,
             loop_start: if loops { header.loop_start } else { 0 },
             loop_end: if loops { header.loop_end } else { 0 },
+            attack,
+            decay,
+            sustain,
+            release,
         })
     }
 
@@ -771,11 +817,17 @@ mod tests {
     /// A minimal mono `.sf2`: one preset, one instrument, one sample over
     /// keys 36–84, velocities 1–127, root key 60, tuned down an octave.
     fn mono_font(pcm: &[u8], compressed: bool) -> Vec<u8> {
-        mono_font_with(pcm, compressed, None)
+        mono_font_with(pcm, compressed, None, &[])
     }
 
-    /// The same font with a `sampleModes` generator, for the loop tests.
-    fn mono_font_with(pcm: &[u8], compressed: bool, modes: Option<u16>) -> Vec<u8> {
+    /// The same font with a `sampleModes` generator and extra instrument
+    /// generators, for the loop and envelope tests.
+    fn mono_font_with(
+        pcm: &[u8],
+        compressed: bool,
+        modes: Option<u16>,
+        extra: &[(u16, u16)],
+    ) -> Vec<u8> {
         let mut file = Vec::new();
         chunk(&mut file, b"RIFF", b"sfbk");
         let mut info = Vec::new();
@@ -798,13 +850,16 @@ mod tests {
         inst.extend(instrument_record("", 2));
         chunk(&mut pdta, b"inst", &inst);
         let mut ibag = bag(0);
-        ibag.extend(bag(if modes.is_some() { 4 } else { 3 }));
+        ibag.extend(bag(3 + u16::from(modes.is_some()) + extra.len() as u16));
         chunk(&mut pdta, b"ibag", &ibag);
         let mut igen = generator_pair(GEN_SAMPLE_ID, 0);
         igen.extend(generator_pair(GEN_ROOT_KEY, 60));
         igen.extend(generator_pair(GEN_COARSE_TUNE, (-12i16) as u16));
         if let Some(modes) = modes {
             igen.extend(generator_pair(GEN_SAMPLE_MODES, modes));
+        }
+        for (op, amount) in extra {
+            igen.extend(generator_pair(*op, *amount));
         }
         chunk(&mut pdta, b"igen", &igen);
         let end = if compressed {
@@ -855,17 +910,58 @@ mod tests {
     fn a_looping_zone_carries_the_samples_loop() {
         let pcm = tone_pcm(44_100, 440.0);
         let frames = pcm.len() as u32 / 2;
-        let font = Soundfont::parse(&mono_font_with(&pcm, false, Some(1))).unwrap();
+        let font = Soundfont::parse(&mono_font_with(&pcm, false, Some(1), &[])).unwrap();
         let zones = font.preset_zones(0).unwrap();
         assert_eq!(zones.len(), 1);
         let zone = &zones[0];
         assert!(zone.loops);
         assert_eq!((zone.loop_start, zone.loop_end), (0, frames));
         // A loop switch-off leaves no loop behind.
-        let off = Soundfont::parse(&mono_font_with(&pcm, false, Some(0))).unwrap();
+        let off = Soundfont::parse(&mono_font_with(&pcm, false, Some(0), &[])).unwrap();
         let zone = &off.preset_zones(0).unwrap()[0];
         assert!(!zone.loops);
         assert_eq!((zone.loop_start, zone.loop_end), (0, 0));
+    }
+
+    #[test]
+    fn a_zone_reads_the_preset_volume_envelope() {
+        let pcm = tone_pcm(44_100, 440.0);
+        // A plucked-string envelope: a half-second attack, a hold then a
+        // decay to near silence (-200 cB) and a short release, stored as
+        // timecents and centibels.
+        let font = Soundfont::parse(&mono_font_with(
+            &pcm,
+            false,
+            Some(1),
+            &[
+                (GEN_ATTACK_VOL, (-1_200i16) as u16),
+                (GEN_HOLD_VOL, (-1_200i16) as u16),
+                (GEN_DECAY_VOL, (-2_400i16) as u16),
+                (GEN_SUSTAIN_VOL, 200),
+                (GEN_RELEASE_VOL, (-3_600i16) as u16),
+            ],
+        ))
+        .unwrap();
+        let zone = &font.preset_zones(0).unwrap()[0];
+        assert!((zone.attack - 0.5).abs() < 1e-4);
+        assert!(
+            (zone.decay - 0.75).abs() < 1e-4,
+            "hold folds into the decay"
+        );
+        assert!((zone.sustain - 0.1).abs() < 1e-4);
+        assert!((zone.release - 0.125).abs() < 1e-4);
+        // Times at or below -12000 timecents count as instant, and a font
+        // that sets nothing attacks and releases at once at full level.
+        let instant = Soundfont::parse(&mono_font_with(
+            &pcm,
+            false,
+            Some(1),
+            &[(GEN_ATTACK_VOL, (-24_000i16) as u16)],
+        ))
+        .unwrap();
+        let zone = &instant.preset_zones(0).unwrap()[0];
+        assert_eq!(zone.attack, 0.0);
+        assert_eq!((zone.decay, zone.sustain, zone.release), (0.0, 1.0, 0.0));
     }
 
     #[test]

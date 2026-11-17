@@ -1747,7 +1747,7 @@ fn import_midi_plays_a_loaded_soundfonts_gm_presets() {
     let dir = std::env::temp_dir().join(format!("musiccraft-cmds-gm-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let font = soundfont_file(&dir).to_string_lossy().into_owned();
+    let font = soundfont_file(&dir, &[]).to_string_lossy().into_owned();
     let path = std::env::temp_dir().join(format!("musiccraft-gm-{}.mid", std::process::id()));
     std::fs::write(&path, smf(192, &two_channel_track())).unwrap();
 
@@ -1855,7 +1855,7 @@ fn set_soundfont_preset_replaces_any_channels_instrument() {
     let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sfp-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let font = soundfont_file(&dir).to_string_lossy().into_owned();
+    let font = soundfont_file(&dir, &[]).to_string_lossy().into_owned();
     let mut s = session();
     run(&mut s, "channel.add_synth Lead");
     run(&mut s, "channel.set_volume 1 0.5");
@@ -1883,7 +1883,7 @@ fn soundfont_preset_choices_follow_the_channels_font() {
     let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sfpc-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let font = soundfont_file(&dir).to_string_lossy().into_owned();
+    let font = soundfont_file(&dir, &[]).to_string_lossy().into_owned();
     let mut s = session();
     run(&mut s, "channel.add_synth Lead");
     // Nothing loaded and no bundled font installed: nothing to offer.
@@ -1914,7 +1914,7 @@ fn an_unreadable_font_shows_up_as_unreadable_instead_of_vanishing() {
     let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sfun-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let file = soundfont_file(&dir);
+    let file = soundfont_file(&dir, &[]);
     let font = file.to_string_lossy().into_owned();
     let gone_path = dir.join("Gone.sf2");
     std::fs::copy(&file, &gone_path).unwrap();
@@ -1951,7 +1951,7 @@ fn the_bundled_font_is_offered_by_its_installed_path() {
     let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sfbp-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let file = soundfont_file(&dir);
+    let file = soundfont_file(&dir, &[]);
     musiccraft_paths::set_bundled_soundfont(file.clone());
     // The bundled font plays by its installed path: the zones' samples
     // must reference the file on disk, not the soundfont's internal name
@@ -1959,7 +1959,7 @@ fn the_bundled_font_is_offered_by_its_installed_path() {
     // nowhere — a MIDI import through that name plays silence).
     let (path, font) = super::soundfont::default_font().expect("bundled font");
     assert_eq!(path, file.to_string_lossy());
-    let (_, zones, drums) =
+    let (_, zones, drums, _) =
         super::soundfont::gm_preset(&font, &path, 0, Some(0)).expect("a GM preset");
     assert!(!drums);
     assert!(!zones.is_empty());
@@ -1982,7 +1982,7 @@ fn a_melodic_soundfont_channel_releases_at_note_off() {
     let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sfos-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let font = soundfont_file(&dir).to_string_lossy().into_owned();
+    let font = soundfont_file(&dir, &[]).to_string_lossy().into_owned();
     let mut s = session();
     run(&mut s, &format!("channel.add_soundfont {font}"));
     // The test font's only preset is melodic (bank 0): its notes end at
@@ -3090,8 +3090,9 @@ fn splitting_undoes_and_redoes_exactly() {
 
 /// A minimal mono `.sf2`: one preset "Grand", one instrument, one sample over
 /// keys 36–84, root key 60, tuned down an octave — the same shape the
-/// `musiccraft-soundfont` tests build.
-fn soundfont_file(dir: &std::path::Path) -> std::path::PathBuf {
+/// `musiccraft-soundfont` tests build. `extra` adds instrument generator
+/// pairs (op, amount) after the tuning ones, for the envelope tests.
+fn soundfont_file(dir: &std::path::Path, extra: &[(u16, u16)]) -> std::path::PathBuf {
     fn chunk(out: &mut Vec<u8>, id: &[u8; 4], body: &[u8]) {
         out.extend_from_slice(id);
         out.extend_from_slice(&(body.len() as u32).to_le_bytes());
@@ -3149,11 +3150,14 @@ fn soundfont_file(dir: &std::path::Path) -> std::path::PathBuf {
     end.extend_from_slice(&2u16.to_le_bytes());
     chunk(&mut pdta, b"inst", &[instrument, end].concat());
     let mut ibag = bag(0);
-    ibag.extend(bag(3));
+    ibag.extend(bag(3 + extra.len() as u16));
     chunk(&mut pdta, b"ibag", &ibag);
     let mut igen = pair(53, 0);
     igen.extend(pair(58, 60));
     igen.extend(pair(51, (-12i16) as u16));
+    for (op, amount) in extra {
+        igen.extend(pair(*op, *amount));
+    }
     chunk(&mut pdta, b"igen", &igen);
     let mut sample = vec![0u8; 20];
     sample[..4].copy_from_slice(b"Tone");
@@ -3176,11 +3180,46 @@ fn soundfont_file(dir: &std::path::Path) -> std::path::PathBuf {
 }
 
 #[test]
+fn a_soundfont_preset_plays_its_own_volume_envelope() {
+    let dir = std::env::temp_dir().join(format!("musiccraft-cmds-env-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // A plucked-string envelope: half a second of attack, then a decay to
+    // near silence (-200 cB) with a short release.
+    let font = soundfont_file(
+        &dir,
+        &[
+            (34, (-1_200i16) as u16),
+            (36, (-2_400i16) as u16),
+            (37, 200),
+            (38, (-3_600i16) as u16),
+        ],
+    )
+    .to_string_lossy()
+    .into_owned();
+    let mut s = session();
+    run(&mut s, &format!("channel.add_soundfont {font}"));
+    let params = &s.project().channels[0].params.0;
+    assert!((params[inst::ATTACK] - 0.5).abs() < 1e-4, "attack");
+    assert!((params[inst::DECAY] - 0.25).abs() < 1e-4, "decay");
+    assert!((params[inst::SUSTAIN] - 0.1).abs() < 1e-4, "sustain");
+    assert!((params[inst::RELEASE] - 0.125).abs() < 1e-4, "release");
+    // Switching presets starts from the synth's defaults, then the new
+    // preset's envelope replaces them.
+    run(&mut s, &format!("channel.set_soundfont_preset 1 {font} 1"));
+    let params = &s.project().channels[0].params.0;
+    assert!(
+        (params[inst::ATTACK] - 0.5).abs() < 1e-4,
+        "attack after switch"
+    );
+}
+
+#[test]
 fn soundfont_commands_fill_zone_samplers() {
     let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sf2-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let font = soundfont_file(&dir).to_string_lossy().into_owned();
+    let font = soundfont_file(&dir, &[]).to_string_lossy().into_owned();
 
     let mut s = session();
     let listed = s

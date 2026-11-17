@@ -2703,6 +2703,163 @@ fn preset_previews_play_a_held_note_and_are_kept() {
     assert!(bridge.preset_preview("No Such Preset", &project).is_err());
 }
 
+/// A mono `.sf2` with one preset and a chosen volume envelope: the (op,
+/// amount) generator pairs land in the instrument zone after the tuning.
+/// The one-second sine loops, so the voice ends only when its envelope does.
+fn envelope_font(extra: &[(u16, u16)]) -> Vec<u8> {
+    fn chunk(out: &mut Vec<u8>, id: &[u8; 4], body: &[u8]) {
+        out.extend_from_slice(id);
+        out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        out.extend_from_slice(body);
+    }
+    fn list(out: &mut Vec<u8>, kind: &[u8; 4], sub: &[u8]) {
+        let mut body = kind.to_vec();
+        body.extend_from_slice(sub);
+        chunk(out, b"LIST", &body);
+    }
+    fn pair(op: u16, amount: u16) -> Vec<u8> {
+        let mut bytes = op.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&amount.to_le_bytes());
+        bytes
+    }
+    fn bag(generators: u16) -> Vec<u8> {
+        let mut bytes = generators.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes
+    }
+    let mut pcm = Vec::new();
+    for i in 0..44_100 {
+        let t = i as f32 / 44_100.0;
+        let value = (std::f32::consts::TAU * 440.0 * t).sin() * 0.5;
+        pcm.extend_from_slice(&((value * f32::from(i16::MAX)) as i16).to_le_bytes());
+    }
+    let mut file = Vec::new();
+    chunk(&mut file, b"RIFF", b"sfbk");
+    let mut info = Vec::new();
+    chunk(&mut info, b"ifil", &[2, 0, 4, 0]);
+    chunk(&mut info, b"INAM", b"Envelope font\0");
+    let mut sdta = Vec::new();
+    chunk(&mut sdta, b"smpl", &pcm);
+    let mut pdta = Vec::new();
+    let mut preset = vec![0u8; 20];
+    preset[..5].copy_from_slice(b"Grand");
+    preset.extend_from_slice(&0u16.to_le_bytes());
+    preset.extend_from_slice(&0u16.to_le_bytes());
+    preset.extend_from_slice(&0u16.to_le_bytes());
+    preset.extend_from_slice(&[0u8; 12]);
+    let mut end = vec![0u8; 38];
+    end[20 + 8..20 + 10].copy_from_slice(&1u16.to_le_bytes());
+    end[..3].copy_from_slice(b"EOP");
+    chunk(&mut pdta, b"phdr", &[preset, end].concat());
+    let mut pbag = bag(0);
+    pbag.extend(bag(2));
+    chunk(&mut pdta, b"pbag", &pbag);
+    let mut pgen = pair(41, 0);
+    pgen.extend(pair(43, 36 | (84 << 8)));
+    chunk(&mut pdta, b"pgen", &pgen);
+    let mut instrument = vec![0u8; 20];
+    instrument[..5].copy_from_slice(b"Piano");
+    let mut iend = vec![0u8; 22];
+    iend[20..22].copy_from_slice(&2u16.to_le_bytes());
+    chunk(&mut pdta, b"inst", &[instrument, iend].concat());
+    let mut ibag = bag(0);
+    ibag.extend(bag(4 + extra.len() as u16));
+    chunk(&mut pdta, b"ibag", &ibag);
+    let mut igen = pair(53, 0);
+    igen.extend(pair(58, 60));
+    igen.extend(pair(51, (-12i16) as u16));
+    igen.extend(pair(54, 1));
+    for (op, amount) in extra {
+        igen.extend(pair(*op, *amount));
+    }
+    chunk(&mut pdta, b"igen", &igen);
+    let mut sample = vec![0u8; 20];
+    sample[..4].copy_from_slice(b"Tone");
+    for value in [0u32, pcm.len() as u32 / 2, 0, pcm.len() as u32 / 2, 44_100] {
+        sample.extend_from_slice(&value.to_le_bytes());
+    }
+    sample.push(60);
+    sample.push(0);
+    sample.extend_from_slice(&0u16.to_le_bytes());
+    sample.extend_from_slice(&0u16.to_le_bytes());
+    chunk(&mut pdta, b"shdr", &[sample, vec![0u8; 46]].concat());
+    list(&mut file, b"INFO", &info);
+    list(&mut file, b"sdta", &sdta);
+    list(&mut file, b"pdta", &pdta);
+    let size = (file.len() - 8) as u32;
+    file[4..8].copy_from_slice(&size.to_le_bytes());
+    file
+}
+
+#[test]
+fn a_soundfont_preset_fades_with_its_own_envelope() {
+    // A quarter-second attack, a half-second decay to silence and a short
+    // release: a held note must follow the font's own envelope instead of
+    // the synth's default sustain level.
+    let path = std::env::temp_dir().join(format!("probe-env-{}.sf2", std::process::id()));
+    std::fs::write(
+        &path,
+        envelope_font(&[
+            (34, (-2_400i16) as u16),
+            (36, (-1_200i16) as u16),
+            (37, 400),
+            (38, (-1_200i16) as u16),
+        ]),
+    )
+    .unwrap();
+    let mut s = session();
+    let font = path.display().to_string();
+    run(
+        &mut s,
+        &format!(
+            "project.set_tempo 120\n         channel.add_soundfont {font}\n         note.add 1 0 8t 60"
+        ),
+    );
+    let (left, _, warnings) = render(s.project(), RenderOptions::default());
+    assert!(warnings.is_empty());
+    let rate = 44_100;
+    let win = rate / 10;
+    let held = rms(&left[2 * win..3 * win]);
+    assert!(held > 0.01, "the note sounds at once: {held}");
+    // By 0.85 s the decay has spent itself (sustain 0.01); the synth's
+    // default sustain would still be at 80%.
+    let faded = rms(&left[8 * win + 4_410..9 * win + 4_410]);
+    assert!(faded < 0.1 * held, "the note fades: {faded} vs {held}");
+    // The note-off at half a second releases what is left.
+    let after = rms(&left[16 * win..17 * win]);
+    assert!(after < 1e-3, "the note ends: {after}");
+}
+
+#[test]
+fn a_soundfont_note_ends_after_its_note_off() {
+    // TimGM6mb's Steel Guitar (preset 102): a real font whose envelope
+    // decays to silence; the note must still stop at the note-off plus its
+    // 0.29 s release, not ring for the decay's full 7–14 s.
+    let font = std::env::temp_dir().join("probe-timgm.sf2");
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../musiccraft-default-soundfont/assets/TimGM6mb.sf2"),
+        &font,
+    )
+    .unwrap();
+    let mut s = session();
+    let path = font.display().to_string();
+    run(
+        &mut s,
+        &format!(
+            "project.set_tempo 120\n         channel.add_soundfont {path} 102\n         note.add 1 0 4t 60"
+        ),
+    );
+    let (left, _, warnings) = render(s.project(), RenderOptions::default());
+    assert!(warnings.is_empty());
+    let rate = 44_100;
+    let win = rate / 10;
+    let start = rms(&left[..win]);
+    assert!(start > 0.01, "the note sounds at once: {start}");
+    let after = rms(&left[9 * win..10 * win]);
+    assert!(after < 1e-3, "the note ends at the note-off: {after}");
+}
+
 #[test]
 fn a_long_soundfont_note_sustains_over_its_loop() {
     // A real font whose guitar samples loop near their ends: the note must
