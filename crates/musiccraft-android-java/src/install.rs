@@ -179,7 +179,8 @@ fn put_string<'local>(
     let put = env.call_method(
         values,
         "put",
-        "(Ljava/lang/String;Ljava/lang/String;)Z",
+        // ContentValues.put returns void, not boolean.
+        "(Ljava/lang/String;Ljava/lang/String;)V",
         &[JValue::Object(&key), JValue::Object(&value)],
     );
     checked(env, put)?;
