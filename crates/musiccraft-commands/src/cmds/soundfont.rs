@@ -90,6 +90,9 @@ pub(super) fn preset_zones_at(
             low: zone.low,
             high: zone.high,
             root: zone.root.round().clamp(0.0, 127.0) as u8,
+            tune: ((zone.root - zone.root.round()) * 100.0)
+                .round()
+                .clamp(-50.0, 50.0) as i8,
             vel_low: zone.vel_low.max(1),
             vel_high: zone.vel_high.max(zone.vel_low.max(1)),
             loop_start: zone.loop_start,

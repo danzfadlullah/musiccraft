@@ -296,6 +296,10 @@ pub struct SampleZone {
     pub high: u8,
     /// Key at which it plays at its recorded pitch.
     pub root: u8,
+    /// Extra tuning in cents (-50..50): a soundfont zone's fine tune and
+    /// pitch correction, which a whole-semitone root cannot hold.
+    #[serde(default)]
+    pub tune: i8,
     /// Lowest velocity (1–127) that plays it.
     pub vel_low: u8,
     /// Highest velocity (1–127) that plays it.
@@ -317,6 +321,7 @@ impl SampleZone {
             low: 0,
             high: 127,
             root: 60,
+            tune: 0,
             vel_low: 1,
             vel_high: 127,
             loop_start: 0,

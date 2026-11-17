@@ -552,7 +552,7 @@ impl Voice {
             }
             Instrument::Zones(zones) => match zones.get(self.pad) {
                 Some(zone) => {
-                    let root = f32::from(zone.root);
+                    let root = f32::from(zone.root) + f32::from(zone.tune) / 100.0;
                     let sustain_loop = (zone.loop_end > zone.loop_start)
                         .then_some((f64::from(zone.loop_start), f64::from(zone.loop_end)));
                     self.render_sample(

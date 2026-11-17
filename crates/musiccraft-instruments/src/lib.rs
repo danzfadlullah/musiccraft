@@ -78,6 +78,8 @@ pub struct Zone {
     pub high: u8,
     /// Key at which it plays at its recorded pitch.
     pub root: u8,
+    /// Extra tuning in cents (-50..50), on top of the root key.
+    pub tune: i8,
     /// Lowest and highest velocity (1–127) that play it.
     pub vel_low: u8,
     pub vel_high: u8,

@@ -2998,3 +2998,53 @@ fn imported_pitch_bends_bend_the_sound() {
         "home {home} bent {bent}: ratio {ratio}, expected {expected}"
     );
 }
+
+#[test]
+fn a_soundfont_zone_plays_at_the_fonts_tuning() {
+    // TimGM6mb tunes its samples in fractions of a semitone (the Flute's
+    // low zone sits 49 cents below its rounded root, the Fiddle's 7 cents
+    // above): a whole-semitone root leaves every note audibly off pitch.
+    let font = std::env::temp_dir().join("probe-timgm.sf2");
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../musiccraft-default-soundfont/assets/TimGM6mb.sf2"),
+        &font,
+    )
+    .unwrap();
+    let font_path = font.display().to_string();
+    for (preset, key) in [(1u16, 60u8), (27, 60)] {
+        let mut s = session();
+        run(
+            &mut s,
+            &format!(
+                "project.set_tempo 120\n         channel.add_soundfont {font_path} {preset}\n         note.add 1 0 4 {key}"
+            ),
+        );
+        let (left, _, warnings) = render(s.project(), RenderOptions::default());
+        assert!(warnings.is_empty());
+        let rate = 44_100.0_f32;
+        let from = rate as usize / 5;
+        let x = &left[from..from + rate as usize / 2];
+        let expected = 440.0 * 2.0_f32.powf((f32::from(key) - 69.0) / 12.0);
+        let corr = |lag: usize| x.iter().zip(&x[lag..]).map(|(a, b)| a * b).sum::<f32>();
+        let min_lag = (rate / (expected * 1.3)) as usize;
+        let max_lag = (rate / (expected * 0.7)) as usize;
+        let mut best = (min_lag, corr(min_lag));
+        for lag in min_lag..=max_lag {
+            let c = corr(lag);
+            if c > best.1 {
+                best = (lag, c);
+            }
+        }
+        let (lag, _) = best;
+        let (c0, c1, c2) = (corr(lag - 1), corr(lag), corr(lag + 1));
+        let shift = (c0 - c2) / (2.0 * (c0 - 2.0 * c1 + c2));
+        let hz = rate / (lag as f32 + shift);
+        let cents = 1200.0 * (hz / expected).abs().log2();
+        assert!(
+            cents < 10.0,
+            "preset {} key {key}: {hz:.2} Hz, expected {expected:.2} Hz ({cents:.1} cents off)",
+            preset - 1
+        );
+    }
+}

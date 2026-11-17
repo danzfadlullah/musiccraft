@@ -1640,6 +1640,7 @@ fn a_pitch_lane_bends_a_zones_voice() {
                 low: 0,
                 high: 127,
                 root: 60,
+                tune: 0,
                 vel_low: 0,
                 vel_high: 127,
                 loop_start: 0,
