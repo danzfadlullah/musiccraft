@@ -9,6 +9,20 @@ pub struct AdsrParams {
     pub sustain: f32,
     /// Time to fall from the current level to 0 after the gate closes.
     pub release: f32,
+    /// Shape of the decay and release segments.
+    pub curve: Curve,
+}
+
+/// Shape of the decay and release segments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Curve {
+    /// Straight lines.
+    #[default]
+    Linear,
+    /// Convex fades that fall fast and then level off, like a sampled
+    /// instrument's volume envelope: the level follows a straight line in
+    /// decibels, so a plucked string rings out instead of hanging.
+    Exponential,
 }
 
 impl Default for AdsrParams {
@@ -18,6 +32,7 @@ impl Default for AdsrParams {
             decay: 0.3,
             sustain: 0.8,
             release: 0.12,
+            curve: Curve::Linear,
         }
     }
 }
@@ -120,6 +135,18 @@ impl Adsr {
             Stage::Decay => {
                 if p.decay <= 0.0 {
                     self.level = sustain;
+                } else if p.curve == Curve::Exponential && self.level > sustain {
+                    if sustain > 0.0 {
+                        // A straight line in decibels: the level reaches the
+                        // sustain exactly when the decay time is up.
+                        self.level *= sustain.powf(1.0 / (p.decay * self.sample_rate));
+                    } else {
+                        self.level *= 10.0_f32.powf(-3.0 / (p.decay * self.sample_rate));
+                        if self.level <= 1e-3 {
+                            self.level = 0.0;
+                            self.stage = Stage::Sustain;
+                        }
+                    }
                 } else {
                     self.level -= (1.0 - sustain) / (p.decay * self.sample_rate);
                 }
@@ -130,10 +157,19 @@ impl Adsr {
             }
             Stage::Sustain => self.level = sustain,
             Stage::Release => {
-                self.level -= self.release_step.max(1e-9);
-                if self.level <= 0.0 {
-                    self.level = 0.0;
-                    self.stage = Stage::Idle;
+                if p.curve == Curve::Exponential {
+                    let seconds = p.release.max(MIN_RELEASE_SECONDS);
+                    self.level *= 10.0_f32.powf(-3.0 / (seconds * self.sample_rate));
+                    if self.level <= 1e-3 {
+                        self.level = 0.0;
+                        self.stage = Stage::Idle;
+                    }
+                } else {
+                    self.level -= self.release_step.max(1e-9);
+                    if self.level <= 0.0 {
+                        self.level = 0.0;
+                        self.stage = Stage::Idle;
+                    }
                 }
             }
         }
@@ -158,6 +194,7 @@ mod tests {
             decay: 0.01,
             sustain: 0.5,
             release: 0.01,
+            curve: Curve::Linear,
         });
         assert!(e.is_idle());
         e.gate_on();
@@ -189,6 +226,7 @@ mod tests {
             decay: 0.0,
             sustain: 0.25,
             release: 0.0,
+            curve: Curve::Linear,
         });
         e.gate_on();
         assert!((e.next_level() - 1.0).abs() < f32::EPSILON);
@@ -204,5 +242,73 @@ mod tests {
         let mut e = env(AdsrParams::default());
         e.gate_off();
         assert!(e.is_idle());
+    }
+
+    #[test]
+    fn exponential_decay_falls_faster_than_linear() {
+        let params = AdsrParams {
+            attack: 0.0,
+            decay: 1.0,
+            sustain: 0.01,
+            release: 0.05,
+            curve: Curve::Exponential,
+        };
+        let mut exponential = env(params);
+        let mut linear = env(AdsrParams {
+            curve: Curve::Linear,
+            ..params
+        });
+        exponential.gate_on();
+        linear.gate_on();
+        for _ in 0..250 {
+            exponential.next_level();
+            linear.next_level();
+        }
+        // A straight line in decibels: 0.01^(1/4) after a quarter of the decay.
+        let expected = 0.01_f32.powf(0.25);
+        assert!((exponential.level() - expected).abs() < 0.01);
+        assert!(exponential.level() < 0.35);
+        assert!(linear.level() > 0.7);
+        for _ in 0..750 {
+            exponential.next_level();
+        }
+        assert!((exponential.level() - 0.01).abs() < 1e-4);
+        assert!(!exponential.is_releasing());
+    }
+
+    #[test]
+    fn exponential_decay_without_sustain_fades_out() {
+        let mut e = env(AdsrParams {
+            attack: 0.0,
+            decay: 1.0,
+            sustain: 0.0,
+            release: 0.05,
+            curve: Curve::Exponential,
+        });
+        e.gate_on();
+        for _ in 0..1_100 {
+            e.next_level();
+        }
+        assert!(e.level().abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn exponential_release_fades_out_and_goes_idle() {
+        let mut e = env(AdsrParams {
+            attack: 0.0,
+            decay: 0.0,
+            sustain: 0.01,
+            release: 0.05,
+            curve: Curve::Exponential,
+        });
+        e.gate_on();
+        e.next_level();
+        e.gate_off();
+        assert!(e.is_releasing());
+        for _ in 0..50 {
+            e.next_level();
+        }
+        assert!(e.is_idle());
+        assert!(e.level().abs() < f32::EPSILON);
     }
 }

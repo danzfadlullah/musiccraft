@@ -1,4 +1,6 @@
-use musiccraft_dsp::{Adsr, AdsrParams, Oscillator, Svf, SvfMode, Waveform, key_to_hz, pan_gains};
+use musiccraft_dsp::{
+    Adsr, AdsrParams, Curve, Oscillator, Svf, SvfMode, Waveform, key_to_hz, pan_gains,
+};
 use musiccraft_params::inst;
 
 use crate::modmatrix::{ModSources, ModState, SynthMods};
@@ -118,6 +120,7 @@ fn envelope_params(params: &Params) -> AdsrParams {
         decay: param(params, inst::DECAY),
         sustain: param(params, inst::SUSTAIN),
         release: param(params, inst::RELEASE),
+        curve: Curve::Linear,
     }
 }
 
@@ -357,7 +360,8 @@ impl Voice {
             _ => {}
         }
         self.env.reset();
-        self.env.set_params(self.envelope(params));
+        let sampled = matches!(instrument, Instrument::Zones(_));
+        self.env.set_params(self.envelope(params, sampled));
         self.env.gate_on();
         // Spread unison phases so stacked oscillators do not start in step.
         for (i, (a, b)) in self.osc1.iter_mut().zip(self.osc2.iter_mut()).enumerate() {
@@ -443,9 +447,15 @@ impl Voice {
         }
     }
 
-    /// The channel's envelope with this note's release velocity applied.
-    fn envelope(&self, params: &Params) -> AdsrParams {
+    /// The channel's envelope with this note's release velocity applied. A
+    /// soundfont's zones play the font's own volume envelope, which decays
+    /// and releases along a straight line in decibels; the linear segments
+    /// would hang a plucked note in the air instead.
+    fn envelope(&self, params: &Params, sampled: bool) -> AdsrParams {
         let mut env = envelope_params(params);
+        if sampled {
+            env.curve = Curve::Exponential;
+        }
         env.release *= self.shape.release;
         env
     }
@@ -526,7 +536,8 @@ impl Voice {
         if !self.active {
             return;
         }
-        self.env.set_params(self.envelope(params));
+        let sampled = matches!(instrument, Instrument::Zones(_));
+        self.env.set_params(self.envelope(params, sampled));
         let pitch = f32::from(self.key) + param(params, inst::PITCH) + self.shape.fine;
         match instrument {
             Instrument::Sampler(buffer) => {

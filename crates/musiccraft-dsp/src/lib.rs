@@ -32,7 +32,7 @@ mod util;
 
 pub use dynamics::{Compressor, Distortion, Limiter};
 pub use effect::{Effect, FilterEffect, ProcessContext, ThreeBandEq};
-pub use envelope::{Adsr, AdsrParams};
+pub use envelope::{Adsr, AdsrParams, Curve};
 pub use filter::{Biquad, Svf, SvfMode};
 pub use osc::{Oscillator, Sine, Waveform};
 pub use reverb::Reverb;

@@ -20,6 +20,8 @@ on:
       - "crates/musiccraft-default-soundfont/**"
       - "crates/musiccraft-commands/**"
       - "crates/musiccraft-samples/**"
+      - "crates/musiccraft-instruments/**"
+      - "crates/musiccraft-dsp/**"
       - "Cargo.toml"
       - "Cargo.lock"
   pull_request:
@@ -34,6 +36,8 @@ on:
       - "crates/musiccraft-default-soundfont/**"
       - "crates/musiccraft-commands/**"
       - "crates/musiccraft-samples/**"
+      - "crates/musiccraft-instruments/**"
+      - "crates/musiccraft-dsp/**"
       - "Cargo.toml"
       - "Cargo.lock"
   workflow_dispatch:

@@ -2812,7 +2812,7 @@ fn a_soundfont_preset_fades_with_its_own_envelope() {
     run(
         &mut s,
         &format!(
-            "project.set_tempo 120\n         channel.add_soundfont {font}\n         note.add 1 0 8t 60"
+            "project.set_tempo 120\n         channel.add_soundfont {font}\n         note.add 1 0 8 60"
         ),
     );
     let (left, _, warnings) = render(s.project(), RenderOptions::default());
@@ -2821,11 +2821,12 @@ fn a_soundfont_preset_fades_with_its_own_envelope() {
     let win = rate / 10;
     let held = rms(&left[2 * win..3 * win]);
     assert!(held > 0.01, "the note sounds at once: {held}");
-    // By 0.85 s the decay has spent itself (sustain 0.01); the synth's
-    // default sustain would still be at 80%.
+    // The note-off lands at 1 s; by 0.85 s the decay has spent itself
+    // (sustain 0.01) and the synth's default sustain would still be at 80%.
     let faded = rms(&left[8 * win + 4_410..9 * win + 4_410]);
     assert!(faded < 0.1 * held, "the note fades: {faded} vs {held}");
-    // The note-off at half a second releases what is left.
+    // The note-off at 1 s releases what is left; the 0.5 s release is spent
+    // by 1.5 s.
     let after = rms(&left[16 * win..17 * win]);
     assert!(after < 1e-3, "the note ends: {after}");
 }
