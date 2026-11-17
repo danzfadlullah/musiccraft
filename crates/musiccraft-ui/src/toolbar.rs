@@ -3,7 +3,7 @@
 use crate::hint::Hint;
 use egui::{Rect, RichText, Sense, pos2, vec2};
 use musiccraft_commands::Invocation;
-use musiccraft_project::{MAX_TEMPO_BPM, MIN_TEMPO_BPM, PlayMode};
+use musiccraft_project::{MAX_TEMPO_BPM, MIN_TEMPO_BPM, PlayMode, Project};
 
 use crate::icons::{self, Icon};
 use crate::{Action, Frame, UiState, format, geometry::position_label, signature, theme, widgets};
@@ -147,7 +147,6 @@ fn add_menu(ui: &mut egui::Ui, frame: &Frame<'_>, actions: &mut Vec<Action>) {
                 ("Zone sampler", "channel.add_zones"),
                 ("Channel stack", "channel.add_layer"),
                 ("MIDI output", "channel.add_midi_out"),
-                ("Built-in soundfont (GM)", "channel.add_soundfont builtin"),
             ] {
                 if ui.button(label).clicked() {
                     if let Ok(invocation) = Invocation::parse(line) {
@@ -281,6 +280,15 @@ fn options_menu(
     settings_item(ui, state, "General settings", "general", actions);
     settings_item(ui, state, "Folders and plugins", "folders", actions);
     settings_item(ui, state, "Project info", "project", actions);
+    if ui
+        .button("Update checker")
+        .hint("Ask the Releases tab whether a newer build is published")
+        .clicked()
+    {
+        run(actions, "ui.settings updates");
+        actions.push(Action::CheckUpdates);
+        ui.close();
+    }
     ui.separator();
     let mut metronome = frame.project.metronome;
     if ui.checkbox(&mut metronome, "Metronome").changed() {
@@ -293,14 +301,50 @@ fn options_menu(
     ui.checkbox(&mut state.record_audio, "Record audio input")
         .hint("With REC armed in song mode, capture the audio input as a clip");
     ui.separator();
-    if ui
-        .button("Soundfont (SF2/SF3)")
-        .hint("Pick a soundfont file and add a channel playing its first preset")
-        .clicked()
-    {
-        run(actions, "ui.add_soundfont");
-        ui.close();
+    ui.menu_button("Soundfonts", |ui| {
+        let in_use = soundfonts_in_use(frame.project);
+        if in_use.is_empty() {
+            ui.label("None in use");
+        }
+        for name in in_use {
+            ui.label(name);
+        }
+        ui.separator();
+        if ui
+            .button("Add a soundfont (SF2/SF3)…")
+            .hint("Pick a soundfont file and add a channel playing its first preset")
+            .clicked()
+        {
+            run(actions, "ui.add_soundfont");
+            ui.close();
+        }
+    });
+}
+
+/// The soundfont files the project's zone samplers play, first use first.
+fn soundfonts_in_use(project: &Project) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for channel in &project.channels {
+        let musiccraft_project::Instrument::Zones { zones } = &channel.instrument else {
+            continue;
+        };
+        for zone in zones {
+            let Some(rest) = zone.sample.strip_prefix("soundfont:") else {
+                continue;
+            };
+            let Some((path, _)) = rest.rsplit_once('#') else {
+                continue;
+            };
+            let name = std::path::Path::new(path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(path);
+            if !found.iter().any(|known| known == name) {
+                found.push(name.to_owned());
+            }
+        }
     }
+    found
 }
 
 fn tools_menu(ui: &mut egui::Ui, frame: &Frame<'_>, state: &UiState, actions: &mut Vec<Action>) {

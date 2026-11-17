@@ -3,7 +3,8 @@
 ## Behavior
 
 - **Options → Settings** (F10) opens one window with tabs. The Options menu
-  also opens it directly at a tab: Audio, MIDI, General, Folders and Project.
+  also opens it directly at a tab: Audio, MIDI, General, Folders, Project and
+  Updates; **Update checker** opens the Updates tab and checks right away.
 - Settings belong to the user, not the project: they are stored in
   `$XDG_CONFIG_HOME/musiccraft/settings.json` (`~/.config/…` when unset;
   `%APPDATA%\MusicCraft` on Windows, `~/Library/Application Support/MusicCraft`
