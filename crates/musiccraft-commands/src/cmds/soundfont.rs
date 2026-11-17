@@ -157,50 +157,160 @@ pub struct PresetChoice {
     pub name: String,
 }
 
-/// The soundfont whose presets a channel's instrument menu offers: the
-/// channel's own when it is a zone sampler, else the project's first
-/// soundfont, else the bundled GM soundfont. Returns the path the soundfont
-/// commands accept, so the menu's picks can name it.
-pub fn channel_font_path(project: &Project, index: usize) -> Option<String> {
-    fn font_zone(channel: &Channel) -> Option<&str> {
-        match &channel.instrument {
+/// One soundfont the menus offer, with what it carries: the presets when
+/// the file reads, or why it does not — a soundfont the project still
+/// names (a file manager pick whose cache copy is gone, say) shows up as
+/// unreadable instead of silently vanishing.
+#[derive(Debug, Clone)]
+pub struct FontEntry {
+    /// The path the soundfont commands accept.
+    pub path: String,
+    /// The file's name alone, for the menu.
+    pub file_name: String,
+    /// The soundfont's own name, from the file.
+    pub name: String,
+    /// Presets in bank 0 (melodic instruments).
+    pub melodic: usize,
+    /// Presets in a percussion bank (128 and up).
+    pub drums: usize,
+    /// The presets, or `None` when the file cannot be read or parsed.
+    pub presets: Option<Vec<PresetChoice>>,
+    /// Why [`Self::presets`] is `None`.
+    pub error: Option<String>,
+}
+
+impl FontEntry {
+    /// The menu's one-line summary: what it carries, or why it is silent.
+    pub fn summary(&self) -> String {
+        match &self.presets {
+            Some(_) => format!(
+                "{} — melodic {}, drums {}",
+                self.file_name, self.melodic, self.drums
+            ),
+            None => format!(
+                "{} — unreadable ({})",
+                self.file_name,
+                self.error.as_deref().unwrap_or("unknown reason")
+            ),
+        }
+    }
+}
+
+/// The soundfont files the project's zone samplers play, first use first.
+pub fn project_font_paths(project: &Project) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for channel in &project.channels {
+        let Instrument::Zones { zones } = &channel.instrument else {
+            continue;
+        };
+        for zone in zones {
+            let Some(path) = soundfont_path(&zone.sample) else {
+                continue;
+            };
+            if !found.iter().any(|known| known == path) {
+                found.push(path.to_owned());
+            }
+        }
+    }
+    found
+}
+
+/// The soundfont paths a channel's instrument menu offers, best first: the
+/// channel's own, then the project's other soundfonts in use, then the
+/// bundled GM soundfont. Cheap (no file is read) — the menus key their
+/// caches on it; [`font_entries`] does the reading.
+pub fn font_paths(project: &Project, index: usize) -> Vec<String> {
+    let own = project
+        .channels
+        .get(index)
+        .and_then(|channel| match &channel.instrument {
             Instrument::Zones { zones } => {
                 zones.first().and_then(|zone| soundfont_path(&zone.sample))
             }
             _ => None,
+        });
+    let mut paths: Vec<String> = Vec::new();
+    if let Some(path) = own {
+        paths.push(path.to_owned());
+    }
+    for path in project_font_paths(project) {
+        if !paths.contains(&path) {
+            paths.push(path);
         }
     }
-    project
-        .channels
-        .get(index)
-        .and_then(font_zone)
-        .map(str::to_owned)
-        .or_else(|| {
-            project
-                .channels
-                .iter()
-                .find_map(font_zone)
-                .map(str::to_owned)
-        })
-        .or_else(|| musiccraft_paths::bundled_soundfont().map(|path| path.display().to_string()))
+    if let Some(bundled) = musiccraft_paths::bundled_soundfont() {
+        let path = bundled.display().to_string();
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    paths
 }
 
-/// The presets of the soundfont at `path`, for the channel menu. `None`
-/// when the file cannot be read or parsed, or has no presets.
-pub fn preset_list(path: &str) -> Option<Vec<PresetChoice>> {
-    let font = parse_file(path).ok()?;
-    let presets: Vec<PresetChoice> = font
-        .presets()
+/// The soundfonts a channel's instrument menu offers, best first: the
+/// channel's own, then the project's other soundfonts in use, then the
+/// bundled GM soundfont. Unreadable files come along as unreadable entries
+/// — the menu says so instead of quietly showing nothing.
+pub fn font_entries(project: &Project, index: usize) -> Vec<FontEntry> {
+    font_paths(project, index)
         .iter()
-        .enumerate()
-        .map(|(index, preset)| PresetChoice {
-            preset: index + 1,
-            bank: preset.bank,
-            program: preset.program,
-            name: preset.name.clone(),
-        })
-        .collect();
-    (!presets.is_empty()).then_some(presets)
+        .map(|path| font_entry(path))
+        .collect()
+}
+
+/// The soundfonts the project plays, first use first — the Options menu's
+/// soundfont list. The bundled font joins when installed, so it shows even
+/// before anything plays it.
+pub fn project_fonts(project: &Project) -> Vec<FontEntry> {
+    let mut paths = project_font_paths(project);
+    if let Some(bundled) = musiccraft_paths::bundled_soundfont() {
+        let path = bundled.display().to_string();
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    paths.iter().map(|path| font_entry(path)).collect()
+}
+
+/// Reads and summarizes the soundfont at `path`.
+fn font_entry(path: &str) -> FontEntry {
+    let file_name = std::path::Path::new(path)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_owned());
+    match parse_file(path) {
+        Ok(font) => {
+            let presets: Vec<PresetChoice> = font
+                .presets()
+                .iter()
+                .enumerate()
+                .map(|(index, preset)| PresetChoice {
+                    preset: index + 1,
+                    bank: preset.bank,
+                    program: preset.program,
+                    name: preset.name.clone(),
+                })
+                .collect();
+            FontEntry {
+                path: path.to_owned(),
+                file_name,
+                name: font.name().to_owned(),
+                melodic: presets.iter().filter(|p| p.bank < 128).count(),
+                drums: presets.iter().filter(|p| p.bank >= 128).count(),
+                presets: (!presets.is_empty()).then_some(presets),
+                error: None,
+            }
+        }
+        Err(err) => FontEntry {
+            path: path.to_owned(),
+            file_name,
+            name: String::new(),
+            melodic: 0,
+            drums: 0,
+            presets: None,
+            error: Some(err),
+        },
+    }
 }
 
 /// The preset a MIDI channel plays in a General MIDI soundfont: melodic

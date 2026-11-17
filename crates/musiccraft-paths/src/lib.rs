@@ -174,6 +174,31 @@ pub fn configure(config: PathConfig) {
 /// path). Set once the app knows its folders; `None` in tools and tests.
 static BUNDLED_SOUND_FONT: Mutex<Option<PathBuf>> = Mutex::new(None);
 
+/// Where log lines go: the app's own logger, installed at startup.
+type LogSink = Box<dyn Fn(&str) + Send + Sync>;
+
+/// Where log lines from the shared crates go. The app installs its Android
+/// log file (or nothing on the desktop) at startup; before that, and in
+/// tools, lines are dropped.
+static LOG_SINK: Mutex<Option<LogSink>> = Mutex::new(None);
+
+/// Installs the sink log lines go to. Called once from the app at startup.
+pub fn set_log_sink(sink: LogSink) {
+    if let Ok(mut slot) = LOG_SINK.lock() {
+        *slot = Some(sink);
+    }
+}
+
+/// A log line from the shared crates (menus, commands): reaches the app's
+/// log file when the app installed a sink, and is dropped otherwise.
+pub fn log(message: &str) {
+    if let Ok(slot) = LOG_SINK.lock() {
+        if let Some(sink) = slot.as_ref() {
+            sink(message);
+        }
+    }
+}
+
 /// Remembers where the app's bundled soundfont is installed this session.
 pub fn set_bundled_soundfont(path: PathBuf) {
     if let Ok(mut slot) = BUNDLED_SOUND_FONT.lock() {

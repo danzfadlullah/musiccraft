@@ -8,8 +8,8 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
+musiccraft-soundfont.workspace = true
 
 [dev-dependencies]
-musiccraft-soundfont.workspace = true
 [lints]
 workspace = true

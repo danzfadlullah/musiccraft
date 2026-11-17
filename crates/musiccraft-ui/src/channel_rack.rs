@@ -879,11 +879,13 @@ fn channel_items(
     }
 }
 
-/// The soundfont presets at the end of the Change instrument menu: General
-/// MIDI when the bundled font is playing, the project's own soundfont
-/// otherwise. The list scrolls — a GM font carries over a hundred presets —
-/// and is cached in the state per font path, so the soundfont is parsed
-/// once, not every frame the menu stays open.
+/// The soundfont presets at the end of the Change instrument menu: the
+/// channel's own font, the project's other soundfonts and the bundled GM
+/// font, each with its presets. An unreadable file — a file manager pick
+/// whose cache copy is gone, say — shows its reason instead of the silent
+/// "could not be read". The list scrolls — a GM font carries over a
+/// hundred presets — and is cached in the state per font path set, so the
+/// soundfonts are parsed once, not every frame the menu stays open.
 fn soundfont_presets(
     ui: &mut egui::Ui,
     state: &mut UiState,
@@ -892,43 +894,60 @@ fn soundfont_presets(
     number: &str,
     actions: &mut Vec<Action>,
 ) {
-    let Some(path) = musiccraft_commands::channel_font_path(project, index) else {
+    let paths = musiccraft_commands::font_paths(project, index);
+    if paths.is_empty() {
         ui.separator();
         ui.weak("No soundfont in use — add one from Options → Soundfonts");
         return;
-    };
+    }
     let stale = state
         .soundfont_presets
         .as_ref()
-        .map(|(cached, _)| cached != &path)
+        .map(|(cached, _)| cached != &paths)
         .unwrap_or(true);
     if stale {
-        let presets = musiccraft_commands::preset_list(&path);
-        state.soundfont_presets = Some((path.clone(), presets));
+        let entries = musiccraft_commands::font_entries(project, index);
+        for entry in &entries {
+            if let Some(error) = &entry.error {
+                musiccraft_paths::log(&format!(
+                    "UI: the channel menu cannot read {}: {error}",
+                    entry.file_name
+                ));
+            }
+        }
+        state.soundfont_presets = Some((paths, entries));
     }
     ui.separator();
-    let Some((_, Some(presets))) = &state.soundfont_presets else {
-        ui.weak("The soundfont could not be read");
+    let Some((_, entries)) = &state.soundfont_presets else {
         return;
     };
     egui::ScrollArea::vertical()
         .max_height(320.0)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            for preset in presets {
-                let label = if preset.bank >= 128 {
-                    format!("{} (drum kit)", preset.name)
-                } else {
-                    preset.name.clone()
+            for entry in entries {
+                let Some(presets) = &entry.presets else {
+                    ui.weak(entry.summary());
+                    continue;
                 };
-                if ui.button(label).clicked() {
-                    run(
-                        actions,
-                        "channel.set_soundfont_preset",
-                        [number.to_owned(), path.clone(), preset.preset.to_string()],
-                    );
-                    ui.close();
+                ui.label(RichText::new(entry.summary()).weak());
+                let path = entry.path.clone();
+                for preset in presets {
+                    let label = if preset.bank >= 128 {
+                        format!("{} (drum kit)", preset.name)
+                    } else {
+                        preset.name.clone()
+                    };
+                    if ui.button(label).clicked() {
+                        run(
+                            actions,
+                            "channel.set_soundfont_preset",
+                            [number.to_owned(), path.clone(), preset.preset.to_string()],
+                        );
+                        ui.close();
+                    }
                 }
+                ui.separator();
             }
         });
 }

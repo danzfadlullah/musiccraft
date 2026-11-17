@@ -680,7 +680,23 @@ fn import_midi(project: &mut Project, args: &Args<'_>) -> Result<Outcome, Comman
     // app's bundled one. Each part then plays its own bank/program preset,
     // like a GM player. Without a soundfont the built-in synths stand in,
     // named after the GM program.
-    let gm = super::soundfont::loaded_font(project).or_else(super::soundfont::default_font);
+    let gm = match super::soundfont::loaded_font(project) {
+        Some(font) => Some(font),
+        None => match super::soundfont::default_font() {
+            Some(font) => {
+                musiccraft_paths::log(
+                    "MIDI import: no readable soundfont in the project; playing the bundled General MIDI one",
+                );
+                Some(font)
+            }
+            None => {
+                musiccraft_paths::log(
+                    "MIDI import: no readable soundfont; the channels fall back to the synths",
+                );
+                None
+            }
+        },
+    };
     let suffix = match sig {
         Some(sig) => format!(", pattern in {sig}"),
         None => String::new(),

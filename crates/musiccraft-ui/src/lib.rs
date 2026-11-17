@@ -672,9 +672,12 @@ pub struct UiState {
     /// result belong there too (an automatic check's failure stays quiet).
     pub(crate) update_install_requested: bool,
     /// The soundfont presets the channel menu's instrument list shows,
-    /// cached per font path: parsing a soundfont every frame the menu is
-    /// open would burn the frame budget.
-    pub(crate) soundfont_presets: Option<(String, Option<Vec<musiccraft_commands::PresetChoice>>)>,
+    /// cached per font path set: parsing a soundfont every frame the menu
+    /// is open would burn the frame budget.
+    pub(crate) soundfont_presets: Option<(Vec<String>, Vec<musiccraft_commands::FontEntry>)>,
+    /// The Options → Soundfonts summary of every font the project and the
+    /// bundle use, cached per path set for the same reason.
+    pub(crate) soundfont_list: Option<(Vec<String>, Vec<musiccraft_commands::FontEntry>)>,
     /// A name being renamed where it is drawn.
     renaming: Option<dialogs::InPlace>,
     antiserum: antiserum::AntiserumUi,
@@ -779,6 +782,7 @@ impl UiState {
             update_dismissed: None,
             update_install_requested: false,
             soundfont_presets: None,
+            soundfont_list: None,
             antiserum: antiserum::AntiserumUi::default(),
         }
     }

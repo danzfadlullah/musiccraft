@@ -24,7 +24,9 @@ mod session;
 pub mod tap_tempo;
 
 pub use cmds::control::{ControlInfo, info as control_info};
-pub use cmds::soundfont::{PresetChoice, channel_font_path, preset_list};
+pub use cmds::soundfont::{
+    FontEntry, PresetChoice, font_entries, font_paths, project_font_paths, project_fonts,
+};
 pub use command::{Command, Outcome};
 pub use error::CommandError;
 pub use invocation::Invocation;

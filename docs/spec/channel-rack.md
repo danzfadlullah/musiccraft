@@ -387,8 +387,16 @@ Out channels voice their own notes and are never cut.
   zones are the chosen preset's (1-based, default 1), named after the
   preset unless a `name` is given. `builtin` is the app's bundled General
   MIDI soundfont (TimGM6mb: 128 melodic presets and eight percussion
-  kits). **Options → Soundfonts** lists the soundfonts in use and picks new
-  files.
+  kits). **Options → Soundfonts** lists every soundfont the project plays
+  plus the bundled one, soundfont-manager style: each line names the file
+  and what it carries (`melodic N, drums M`), or why the file cannot be
+  read — a file manager pick whose cache copy is gone shows up as
+  unreadable instead of silently vanishing, both here and in the channel
+  menu. "Add another soundfont…" picks new files.
+- The channel menu's **Change instrument ▸** offers the channel's own
+  soundfont first, then the project's other soundfonts, then the bundled
+  one; each entry lists its presets (scrollable), and an unreadable file
+  shows its reason and is logged.
 - `channel.load_soundfont <channel> <file.sf2|builtin> [preset]` replaces a
   zone sampler's zones the same way; `soundfont.presets <file.sf2|builtin>`
   lists a file's presets as `index bank:program name` (not undoable,

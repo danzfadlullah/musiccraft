@@ -10,6 +10,7 @@
 //! folders at startup, because the sample cache plays `soundfont:` samples
 //! from a real file path.
 
+use musiccraft_soundfont::Soundfont;
 use std::path::{Path, PathBuf};
 
 /// The installed file's name.
@@ -21,17 +22,28 @@ pub fn bytes() -> &'static [u8] {
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/TimGM6mb.sf2"))
 }
 
-/// Writes the soundfont into `dir` (creating it) unless a file of the same
-/// size is already there, and returns its path. `None` when the folder
+/// Writes the soundfont into `dir` (creating it) unless a file that really
+/// parses is already there, and returns its path. `None` when the folder
 /// cannot be created or the file cannot be written.
+///
+/// A file of the right size that does not parse is rewritten: a corrupt
+/// install would otherwise silently fall every MIDI import back to the
+/// synths, with nothing in the log to say why.
 pub fn install(dir: &Path) -> Option<PathBuf> {
     let path = dir.join(FILE_NAME);
-    let fresh = std::fs::metadata(&path).is_ok_and(|meta| meta.len() == bytes().len() as u64);
+    let fresh = std::fs::metadata(&path).is_ok_and(|meta| meta.len() == bytes().len() as u64)
+        && verify(&path).is_ok();
     if !fresh {
         std::fs::create_dir_all(dir).ok()?;
         std::fs::write(&path, bytes()).ok()?;
     }
     Some(path)
+}
+
+/// The file at `path` reads and parses as a SoundFont.
+pub fn verify(path: &Path) -> Result<(), String> {
+    let data = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    Soundfont::parse(&data).map(|_| ())
 }
 
 #[cfg(test)]

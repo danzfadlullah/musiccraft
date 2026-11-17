@@ -1814,20 +1814,61 @@ fn soundfont_preset_choices_follow_the_channels_font() {
     let mut s = session();
     run(&mut s, "channel.add_synth Lead");
     // Nothing loaded and no bundled font installed: nothing to offer.
-    assert!(super::soundfont::channel_font_path(s.project(), 0).is_none());
+    assert!(super::soundfont::font_paths(s.project(), 0).is_empty());
     run(&mut s, &format!("channel.add_soundfont {font}"));
     // The zone sampler offers its own font; the synth channel falls back
     // to the project's first soundfont.
     for index in 0..2 {
-        let path = super::soundfont::channel_font_path(s.project(), index).unwrap();
-        assert_eq!(path, font);
-        let presets = super::soundfont::preset_list(&path).unwrap();
+        let paths = super::soundfont::font_paths(s.project(), index);
+        assert_eq!(paths, vec![font.clone()]);
+        let entries = super::soundfont::font_entries(s.project(), index);
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].error.is_none());
+        assert_eq!(entries[0].melodic, 1);
+        assert_eq!(entries[0].drums, 0);
+        let presets = entries[0].presets.as_ref().unwrap();
         assert_eq!(presets.len(), 1);
         assert_eq!(presets[0].preset, 1);
         assert_eq!(presets[0].bank, 0);
         assert_eq!(presets[0].program, 0);
         assert_eq!(presets[0].name, "Grand");
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_unreadable_font_shows_up_as_unreadable_instead_of_vanishing() {
+    let dir = std::env::temp_dir().join(format!("musiccraft-cmds-sfun-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = soundfont_file(&dir);
+    let font = file.to_string_lossy().into_owned();
+    let gone_path = dir.join("Gone.sf2");
+    std::fs::copy(&file, &gone_path).unwrap();
+    let gone = gone_path.to_string_lossy().into_owned();
+    let mut s = session();
+    run(&mut s, "channel.add_synth Lost");
+    run(&mut s, &format!("channel.add_soundfont {gone}"));
+    run(&mut s, &format!("channel.add_soundfont {font}"));
+    // A file manager pick whose cache copy is gone: the project still
+    // names the path, the file no longer exists.
+    std::fs::remove_file(&gone_path).unwrap();
+    // The channel menu's list: the stale path first (unreadable, with the
+    // reason), then the project's readable font.
+    let entries = super::soundfont::font_entries(s.project(), 0);
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].path, gone);
+    assert!(entries[0].presets.is_none());
+    assert!(entries[0].error.is_some());
+    assert!(entries[0].summary().contains("unreadable"));
+    assert_eq!(entries[1].path, font);
+    assert!(entries[1].presets.is_some());
+    assert!(entries[1].error.is_none());
+    // The Options menu's list: the project's fonts plus the bundled one.
+    let listed = super::soundfont::project_fonts(s.project());
+    assert_eq!(listed.len(), 2);
+    assert!(listed[0].presets.is_none());
+    assert!(listed[1].presets.is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

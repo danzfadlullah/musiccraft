@@ -1382,6 +1382,9 @@ impl App {
         }
         if let Some(audio) = &mut self.audio {
             let report = audio.bridge.sync(self.session.project(), &mut audio.handle);
+            for warning in &report.warnings {
+                log(&format!("audio: {warning}"));
+            }
             if let Some(warning) = report.warnings.first() {
                 self.ui.set_status(warning.clone(), true);
             }
@@ -1853,6 +1856,9 @@ fn on_off(enabled: bool) -> &'static str {
 }
 
 fn run_native(options: Options) -> eframe::Result {
+    // The shared crates (menus, commands) log through this hook, so their
+    // lines reach the same file the app's own log lines go to.
+    musiccraft_paths::set_log_sink(Box::new(log));
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1360.0, 860.0])

@@ -302,49 +302,56 @@ fn options_menu(
         .hint("With REC armed in song mode, capture the audio input as a clip");
     ui.separator();
     ui.menu_button("Soundfonts", |ui| {
-        let in_use = soundfonts_in_use(frame.project);
-        if in_use.is_empty() {
-            ui.label("None in use");
-        }
-        for name in in_use {
-            ui.label(name);
-        }
-        ui.separator();
-        if ui
-            .button("Add a soundfont (SF2/SF3)…")
-            .hint("Pick a soundfont file and add a channel playing its first preset")
-            .clicked()
-        {
-            run(actions, "ui.add_soundfont");
-            ui.close();
-        }
+        soundfont_list(ui, state, frame.project, actions);
     });
 }
 
-/// The soundfont files the project's zone samplers play, first use first.
-fn soundfonts_in_use(project: &Project) -> Vec<String> {
-    let mut found: Vec<String> = Vec::new();
-    for channel in &project.channels {
-        let musiccraft_project::Instrument::Zones { zones } = &channel.instrument else {
-            continue;
-        };
-        for zone in zones {
-            let Some(rest) = zone.sample.strip_prefix("soundfont:") else {
-                continue;
-            };
-            let Some((path, _)) = rest.rsplit_once('#') else {
-                continue;
-            };
-            let name = std::path::Path::new(path)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or(path);
-            if !found.iter().any(|known| known == name) {
-                found.push(name.to_owned());
+/// The Options → Soundfonts list, soundfont-manager style: every font the
+/// project plays plus the bundled GM font, each with what it carries —
+/// preset counts, or why the file cannot be read. Cached per path set in
+/// the state, so the files are parsed once, not every frame the menu is
+/// open.
+fn soundfont_list(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    project: &Project,
+    actions: &mut Vec<Action>,
+) {
+    let paths = musiccraft_commands::project_font_paths(project);
+    if paths.is_empty() && musiccraft_paths::bundled_soundfont().is_none() {
+        ui.label("No soundfont installed");
+    }
+    let stale = state
+        .soundfont_list
+        .as_ref()
+        .map(|(cached, _)| cached != &paths)
+        .unwrap_or(true);
+    if stale {
+        let entries = musiccraft_commands::project_fonts(project);
+        for entry in &entries {
+            if let Some(error) = &entry.error {
+                musiccraft_paths::log(&format!(
+                    "UI: the soundfont list cannot read {}: {error}",
+                    entry.file_name
+                ));
             }
         }
+        state.soundfont_list = Some((paths, entries));
     }
-    found
+    if let Some((_, entries)) = &state.soundfont_list {
+        for entry in entries {
+            ui.label(entry.summary());
+        }
+    }
+    ui.separator();
+    if ui
+        .button("Add another soundfont…")
+        .hint("Pick a soundfont file (SF2/SF3) and add a channel playing its first preset")
+        .clicked()
+    {
+        run(actions, "ui.add_soundfont");
+        ui.close();
+    }
 }
 
 fn tools_menu(ui: &mut egui::Ui, frame: &Frame<'_>, state: &UiState, actions: &mut Vec<Action>) {
