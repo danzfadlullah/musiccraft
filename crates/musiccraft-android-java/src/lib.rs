@@ -12,6 +12,11 @@
 //! `android_main`, this crate is a deliberate exception, because JNI cannot
 //! be written safely. It holds nothing else and does not inherit the
 //! workspace lints (docs/android.md, "Notes for contributors").
+//!
+//! Like `musiccraft-android`, the crate compiles empty on other platforms,
+//! so a desktop `cargo check --workspace` never reaches the JNI glue.
+
+#![cfg(target_os = "android")]
 
 mod install;
 mod saf;
