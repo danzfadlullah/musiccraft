@@ -11,6 +11,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+# The desktop build matrix (Windows/macOS) from upstream was dropped: this
+# fork targets Android, and the Android workflow checks those crates on the
+# Android targets. The Linux job still runs the shared crates' tests and
+# lints, which the APK is built from.
 
 jobs:
   check:
@@ -73,15 +77,3 @@ jobs:
           cargo clippy --manifest-path standalone/Cargo.toml --locked -- -D warnings
       - name: Antiserum real-time benchmark
         run: cargo run --release --locked -p musiccraft-antiserum --example bench
-
-  build:
-    name: build (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace --all-targets --locked
